@@ -1,0 +1,12 @@
+/**
+ * Some hacks for Markdown texts
+ */
+
+/* Hide the table of contents */
+.rst-content #table-of-contents {
+    display: none;
+}
+.toctree-l2 a[href="#table-of-contents"] {
+    display: none;
+}
+
