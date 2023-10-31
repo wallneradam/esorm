@@ -3,7 +3,7 @@
 # Make virtualenv for development
 #
 
-PYTHON="python3.11"
+PYTHON="python3.8"
 
 if ! [ -x "$(command -v virtualenv)" ]; then
     echo "Virtualenv is not installed. Please install virtualenv and try again."

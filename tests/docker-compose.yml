@@ -1,0 +1,48 @@
+# Compose version
+version: "3.7"
+
+networks:
+  esorm:
+    name: esorm
+    driver: bridge
+    driver_opts:
+      com.docker.network.bridge.name: esorm
+
+services:
+  es8x:
+    container_name: es8x
+    hostname: es
+    image: elasticsearch:8.10.2
+    environment:
+      - discovery.type=single-node
+      - logger.level=ERROR
+      - node.name=es
+      - xpack.security.enabled=false
+      - ingest.geoip.downloader.enabled=false
+      - "ES_JAVA_OPTS=-Xms256m -Xmx256m"
+    volumes:
+      - type: tmpfs
+        target: /usr/share/elasticsearch/data
+    networks:
+      - esorm
+    ports:
+      - "127.0.0.1:9200:9200"
+
+  es7x:
+    container_name: es7x
+    hostname: es
+    image: elasticsearch:7.17.13
+    environment:
+      - discovery.type=single-node
+      - logger.level=ERROR
+      - node.name=es
+      - xpack.security.enabled=false
+      - ingest.geoip.downloader.enabled=false
+      - "ES_JAVA_OPTS=-Xms256m -Xmx256m"
+    volumes:
+      - type: tmpfs
+        target: /usr/share/elasticsearch/data
+    networks:
+      - esorm
+    ports:
+      - "127.0.0.1:9200:9200"

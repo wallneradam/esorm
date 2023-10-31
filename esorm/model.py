@@ -187,7 +187,7 @@ class ESModel(BaseModel, metaclass=_ESModelMeta):
         # Lazy properties - it is filled by the metaclass
         _lazy_properties: Dict[str, Callable[[], Awaitable[Any]]] = {}
 
-    # Pydanitc model config
+    # Pydantic model config
     model_config = ConfigDict(
         str_strip_whitespace=True,
         extra="forbid",
@@ -234,7 +234,7 @@ class ESModel(BaseModel, metaclass=_ESModelMeta):
         index = cls.ESConfig.index
         if wait_for is not None:
             kwargs['refresh'] = "wait_for"
-        if not 'request_timeout' in kwargs:
+        if 'request_timeout' not in kwargs:
             kwargs['request_timeout'] = 60
         return await method(index=index, **kwargs)
 
@@ -274,6 +274,11 @@ class ESModel(BaseModel, metaclass=_ESModelMeta):
             for k, v in _d.items():
                 # Encode datetime fields
                 if isinstance(v, datetime):
+                    # Update ESTimestamp fields
+                    if k == 'modified_at' and d != _d:
+                        v = datetime.utcnow()
+                    elif k == 'created_at' and v is None and d != _d:
+                        v = datetime.utcnow()
                     _d[k] = v.replace(tzinfo=None).isoformat() + 'Z'
                 # Convert subclasses
                 elif isinstance(v, dict):
@@ -451,8 +456,7 @@ class ESModel(BaseModel, metaclass=_ESModelMeta):
 
     @classmethod
     async def search_one(cls: Type[TModel], query: ESQuery, *, routing: Optional[str] = None,
-                         aggs: Optional[ESAggregations] = None, **kwargs) -> Optional[
-        TModel]:
+                         aggs: Optional[ESAggregations] = None, **kwargs) -> Optional[TModel]:
         """
         Search Model and return the first result
 
@@ -539,7 +543,7 @@ class ESModelTimestamp(ESModel):
     Model which stores `created_at` and `modified_at` fields automatcally.
     """
     created_at: Optional[datetime] = Field(None, description="Creation date and time")
-    modified_at: Optional[datetime] = Field(default_factory=datetime.now, description="Modification date and time")
+    modified_at: Optional[datetime] = Field(default_factory=datetime.utcnow, description="Modification date and time")
 
     async def save(self, *, force_new=False, wait_for=False, pipeline: Optional[str] = None,
                    routing: Optional[str] = None) -> str:
@@ -824,6 +828,9 @@ async def setup_mappings(*_, debug=False):
         """ Creates mapping for the model """
         field_info: FieldInfo
         for name, field_info in model.model_fields.items():
+            # Skip id field, because it won't be stored
+            if model.ESConfig.id_field == name:
+                continue
             extra = field_info.json_schema_extra or {}
             # Process field
             res = get_field_data(field_info.annotation)

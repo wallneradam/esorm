@@ -1,8 +1,7 @@
 #!/bin/sh
 
 # Tests in these python interpreters
-#PYTHONS="python3.8 python3.9 python3.10 python3.11"
-PYTHONS="python3.11"
+PYTHONS="python3.8 python3.9 python3.10 python3.11 python3.12"
 
 # Check if docker is installed
 if ! [ -x "$(command -v docker)" ]; then
@@ -33,17 +32,19 @@ for PYTHON in $PYTHONS; do
     . venv_test/bin/activate
 
     echo " - Installing dependencies..."
-    pip install --upgrade pip >/dev/null 2>&1
+    ${PYTHON} -m ensurepip --upgrade >/dev/null 2>&1  # This works in python3.12
     pip install -e ".[dev]" >/dev/null
     if [ $? -ne 0 ]; then
         echo "Failed to install dependencies in $PYTHON!"
         exit 4
     fi
 
-#    if [ $? -ne 0 ]; then
-#        echo "Tests failed in $PYTHON!"
-#        exit 1
-#    fi
+    echo " - Running tests..."
+    pytest
+    if [ $? -ne 0 ]; then
+        echo "Tests failed in $PYTHON!"
+        exit 5
+    fi
 
     # Remove virtualenv
     deactivate

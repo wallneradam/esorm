@@ -10,6 +10,7 @@ from pydantic import BaseModel
 __all__ = (
     'Keyword', 'Text', 'Binary', 'Byte', 'Short', 'Integer', 'Long', 'HalfFloat', 'Float', 'Double', 'LatLon',
     'keyword', 'text', 'binary', 'byte', 'short', 'int32', 'long', 'float16', 'float32', 'double', 'geo_point',
+    'integer', 'half_float', 'int64', 'boolean',
     'Field', 'NumericField', 'TextField'
 )
 
@@ -166,8 +167,15 @@ float32 = Union[Float, float]
 double = Union[Double, float]
 """ 64 bit float (double) type """
 
+# Aliases
+integer = int32
+int64 = long
+boolean = bool
+half_float = float16
+
 geo_point = LatLon
 """ Geo Point type """
+
 
 # noinspection PyPep8Naming
 def Field(
