@@ -151,7 +151,7 @@ class TestBaseTests:
         doc_id = await model_nested(f_nested=model_timestamp(f_str="nested_test5")).save()
         assert doc_id is not None and len(doc_id) == 20, "Incorrect document id"
 
-    async def test_crut_get_by_id(self, es, esorm, model_nested, model_timestamp):
+    async def test_crud_get_by_id(self, es, esorm, model_nested, model_timestamp):
         """
         Test get by id
         """

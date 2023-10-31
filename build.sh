@@ -16,4 +16,8 @@ if [ $? -ne 0 ]; then
 fi
 
 # Upload to PyPI
-#twine upload dist/*
+twine upload dist/*
+if [ $? -ne 0 ]; then
+    echo "Upload failed!"
+    exit 3
+fi
