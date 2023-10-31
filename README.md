@@ -1,5 +1,5 @@
 <!--suppress HtmlDeprecatedAttribute -->
-<img src="https://raw.githubusercontent.com/wallneradam/esorm/main/docs/_static/img/esorm.svg" width="120" height="120" align="left" style="margin-right: 1em;" alt="Logo"/>
+<img src="https://raw.githubusercontent.com/wallneradam/esorm/main/docs/_static/img/esorm.svg" width="110" height="110" align="left" style="margin-right: 1em;" alt="Logo"/>
 
 # ESORM - Python ElasticSearch ORM based on Pydantic
 
@@ -44,12 +44,15 @@ but not as advanced (yet).</small>
 - [🛡 License](#license)
 - [📃 Citation](#citation)
 
+<a id="installation"></a>
 ## 💾 Installation
 
+
 ```bash
-pip install esorm
+pip install pyesorm
 ```
 
+<a id="features"></a>
 ## 🚀 Features
 
 - Pydantic model representation of ElasticSearch documents
@@ -74,21 +77,26 @@ pip install esorm
 
 Not all ElasticSearch features are supported yet, pull requests are welcome.
 
+<a id="supported-elasticsearch-versions"></a>
 ### Supported ElasticSearch versions
 
 It is tested with ElasticSearch 7.x and 8.x.
 
+<a id="supported-python-versions"></a>
 ### Supported Python versions
 
 Tested with Python 3.8 through 3.12.
 
+<a id="usage"></a>
 ## 📖 Usage
 
+<a id="define-a-model"></a>
 ### Define a model
 
 You can use all [Pydantic](https://pydantic-docs.helpmanual.io/usage/models/) model features, because
 `ESModel` is a subclass of `pydantic.BaseModel`.
 
+<a id="python-basic-types"></a>
 #### Python basic types
 
 ```python
@@ -112,6 +120,7 @@ This is how the python types are converted to ES types:
 | `datetime.date`     | `date`    |
 | `datetime.time`     | `date`    |
 
+<a id="esorm-field-types"></a>
 #### ESORM field types
 
 You can specify ElasticSearch special fields using `esorm.fields` module.
@@ -146,6 +155,7 @@ The supported fields are:
 | `boolean`                 | `boolean`    |
 | `geo_point`               | `geo_point`  |
 
+<a id="nested-documents"></a>
 #### Nested documents
 
 ```python
@@ -165,6 +175,7 @@ class Post(ESModel):
     writer: User  # User is a nested document
 ```
 
+<a id="id-field"></a>
 #### Id field
 
 You can specify id field in [model settings](#model-settings):
@@ -217,6 +228,7 @@ class User(ESModel):
 
 NOTE: annotation of `__id__` method is important, and it must be declared as a property.
 
+<a id="model-settings"></a>
 #### Model Settings
 
 You can specify model settings using `ESConfig` child class.
@@ -239,6 +251,7 @@ class User(ESModel):
         settings: Optional[Dict[str, Any]] = None
 ```
 
+<a id="esmodeltimestamp"></a>
 #### ESModelTimestamp
 
 You can use `ESModelTimestamp` class to add `created_at` and `updated_at` fields to your model:
@@ -256,6 +269,7 @@ These fields will be automatically updated to the actual `datetime` when you cre
 The `created_at` field will be set only when you create a document. The `updated_at` field will be set
 when you create or update a document.
 
+<a id="describe-fields"></a>
 #### Describe fields
 
 You can use the usual `Pydantic` field description, but you can also use docstrings like this:
@@ -278,6 +292,7 @@ class User(ESModel):
 The documentation is usseful if you create an API and you want to generate documentation from the model.
 It can be used in [FastAPI](https://fastapi.tiangolo.com/) for example.
 
+<a id="connecting-to-elasticsearch"></a>
 ### Connecting to ElasticSearch
 
 You can connect with a simple connection string:
@@ -322,6 +337,7 @@ async def es_init():
     await connect('localhost:9200', wait=True, sniff_on_start=True, sniff_on_connection_fail=True)
 ```
 
+<a id="client"></a>
 #### Client
 
 The `connect` function is a wrapper for the `AsyncElasticsearch` constructor. It creates and stores
@@ -337,6 +353,7 @@ async def es_init():
     await es.ping()
 ```
 
+<a id="create-index-templates"></a>
 ### Create index templates
 
 You can create index templates easily:
@@ -365,6 +382,7 @@ set_default_index_prefix('custom_prefix_')
 
 The default prefix is `esorm_`.
 
+<a id="create-indices-and-mappings"></a>
 ### Create indices and mappings
 
 You can create indices and mappings automatically from your models:
@@ -388,6 +406,7 @@ indices
 by new fields, but cannot modify or delete fields! For that you need to reindex your ES database. It is an ElasticSearch
 limitation.
 
+<a id="crud-create"></a>
 ### CRUD: Create
 
 ```python
@@ -408,6 +427,7 @@ async def create_user():
     print(new_user_id)
 ```
 
+<a id="crud-read"></a>
 ### CRUD: Read
 
 ```python
@@ -425,6 +445,7 @@ async def get_user(user_id: str):
     print(user.name)
 ```
 
+<a id="crud-update"></a>
 ### CRUD: Update
 
 ```python
@@ -443,6 +464,7 @@ async def update_user(user_id: str):
     await user.save()
 ```
 
+<a id="crud-delete"></a>
 ### CRUD: Delete
 
 ```python
@@ -460,6 +482,7 @@ async def delete_user(user_id: str):
     await user.delete()
 ```
 
+<a id="bulk-operations"></a>
 ### Bulk operations
 
 You can use context for bulk operations:
@@ -490,8 +513,10 @@ async def bulk_delete_users(users: List[User]):
             await bulk.delete(user)
 ```
 
+<a id="search"></a>
 ### Search
 
+<a id="general-search"></a>
 #### General search
 
 You can search for documents using `search` method, where an ES query can be specified as a dictionary.
@@ -549,6 +574,7 @@ async def search_one_user():
 
 Queries are type checked, because they are annotated as TypeDicts. You can use IDE autocompletion and type checking.
 
+<a id="search-with-field-value-terms-dictionary-search"></a>
 #### Search with field value terms (dictionary search)
 
 You can search for documents using `search_by_fields` method, where you can specify a field and a value.
@@ -571,28 +597,37 @@ async def search_users():
         print(user.name)
 ```
 
+<a id="aggregations"></a>
 ### Aggregations
 
 TODO...
 Aggregations are not fully working and not designed well yet.
 
+<a id="advanced-usage"></a>
 ## 🔬 Advanced usage
 
 TODO...
 These features may not documented yet, but working.
 
+<a id="pagination-and-sorting"></a>
 ### Pagination and sorting
 
+<a id="lazy-properties"></a>
 ### Lazy properties
 
+<a id="shard-routing"></a>
 ### Shard routing
 
+<a id="watchers"></a>
 ### Watchers
 
+<a id="fastapi-integration"></a>
 ### FastAPI integration
 
+<a id="logging"></a>
 ### Logging
 
+<a id="testing"></a>
 ## 🧪 Testing
 
 For testing you can use the `test.sh` in the root directory. It is a script to running
@@ -601,11 +636,13 @@ which python interpreters you want to test. The ES versions are specified in `te
 
 If you already have a virtual environment, simply use `pytest` to run the tests.
 
+<a id="license"></a>
 ## 🛡 License
 
 This project is licensed under the terms of the [Mozilla Public License 2.0](https://www.mozilla.org/en-US/MPL/2.0/) (
 MPL 2.0) license.
 
+<a id="citation"></a>
 ## 📃 Citation
 
 If you use this project in your research, please cite it using the following BibTeX entry:

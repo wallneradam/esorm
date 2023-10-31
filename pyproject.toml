@@ -1,26 +1,3 @@
 [build-system]
 requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
-
-[project]
-name = "esorm"
-version = "0.1.0"
-authors = [
-    { name = "Adam Wallner", email = "adam.wallner@gmail.com" },
-]
-description = "Python ElasticSearch ORM based on Pydantic"
-readme = "README.md"
-requires-python = ">=3.8"
-classifiers = [
-    "Programming Language :: Python :: 3",
-    "License :: OSI Approved :: Mozilla Public License 2.0 (MPL 2.0)",
-    "Operating System :: OS Independent",
-    "Intended Audience :: Developers",
-    "Topic :: Software Development :: Libraries :: Python Modules",
-    "Topic :: Database",
-    "Typing :: Typed"
-]
-
-[project.urls]
-"Homepage" = "https://github.com/wallneradam/esorm"
-"Bug Tracker" = "https://github.com/wallneradam/esorm/issues"

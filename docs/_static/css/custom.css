@@ -2,10 +2,17 @@
  * Some hacks for Markdown texts
  */
 
+/* Logo */
+img.logo {
+    max-width: 110px;
+    max-height: 110px;
+}
+
 /* Hide the table of contents */
 .rst-content #table-of-contents {
     display: none;
 }
+
 .toctree-l2 a[href="#table-of-contents"] {
     display: none;
 }
