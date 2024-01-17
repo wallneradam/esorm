@@ -43,6 +43,7 @@ for PYTHON in $PYTHONS; do
     pytest
     if [ $? -ne 0 ]; then
         echo "Tests failed in $PYTHON!"
+        (cd venv_test && docker compose down -v)
         exit 5
     fi
 
