@@ -250,9 +250,9 @@ class ESModel(BaseModel, metaclass=_ESModelMeta):
         """
         kwargs = dict(kwargs)
 
-        def recursive_exclude(m) -> dict:
+        def recursive_exclude(m) -> Dict[str, Union[bool, dict]]:
             """ Recursively exclude computed fields """
-            _exclude = {k: True for k in m.model_computed_fields.keys()}
+            _exclude: Dict[str, Union[bool, dict]] = {k: True for k in m.model_computed_fields.keys()}
             for k, v in m:
                 if k in _exclude:
                     continue
@@ -299,14 +299,14 @@ class ESModel(BaseModel, metaclass=_ESModelMeta):
         if not data:
             return None
 
-        source = data.get("_source", None)
+        source: Optional[dict] = data.get("_source", None)
         _id = data.get("_id", None)
 
         if not source or not _id:
             raise InvalidResponseError
 
         # Add id field to document
-        if cls.ESConfig.id_field:
+        if source is not None and cls.ESConfig.id_field:
             source[cls.ESConfig.id_field] = _id
         obj = cls(**source)
         setattr(obj, '_id', _id)
@@ -829,7 +829,7 @@ async def setup_mappings(*_, debug=False):
         field_info: FieldInfo
         for name, field_info in model.model_fields.items():
             # Skip id field, because it won't be stored
-            if model.ESConfig.id_field == name:
+            if hasattr(model, 'ESConfig') and model.ESConfig.id_field == name:
                 continue
             extra = field_info.json_schema_extra or {}
             # Process field
