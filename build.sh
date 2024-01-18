@@ -10,7 +10,7 @@ if [ $? -ne 0 ]; then
 fi
 
 # Build documentation
-( cd docs && make html )
+( cd docs && make clean && make html )
 if [ $? -ne 0 ]; then
     echo "Doc build failed!" >&2
     exit 2

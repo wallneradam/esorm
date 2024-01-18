@@ -132,6 +132,7 @@ def model_timestamp(esorm):
 
     class TimestampModel(esorm.ESModelTimestamp):
         f_str: str
+        f_int: int = 1
 
     yield TimestampModel
 

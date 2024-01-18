@@ -600,8 +600,70 @@ async def search_users():
 <a id="aggregations"></a>
 ### Aggregations
 
-TODO...
-Aggregations are not fully working and not designed well yet.
+You can use `aggregate` method to get aggregations. 
+You can specify an ES aggregation query as a dictionary. It also accepts normal ES queries,
+to be able to fiter which documents you want to aggregate. 
+Both the aggs parameter and the query parameter are type checked, because they are annotated as TypeDicts.
+You can use IDE autocompletion and type checking.
+
+```python
+from esorm import ESModel
+
+# Here the model have automatically generated id
+class User(ESModel):
+    name: str
+    age: int
+    country: str
+    
+async def aggregate_avg():
+    # Get average age of users
+    aggs_def = {
+        'avg_age': {
+            'avg': {
+                'field': 'age'
+            }
+        }
+    }
+    aggs = await User.aggregate(aggs_def)
+    print(aggs['avg_age']['value'])
+    
+async def aggregate_avg_by_country(country = 'Hungary'):
+    # Get average age of users by country
+    aggs_def = {
+        'avg_age': {
+            'avg': {
+                'field': 'age'
+            }
+        }
+    }
+    query = {
+        'bool': {
+            'must': [{
+                'match': {
+                    'country': {
+                        'query': country
+                    }
+                }
+            }]
+        }
+    }
+    aggs = await User.aggregate(aggs_def, query)
+    print(aggs['avg_age']['value'])
+    
+    
+async def aggregate_terms():
+    # Get number of users by country
+    aggs_def = {
+        'countries': {
+            'terms': {
+                'field': 'country'
+            }
+        }
+    }
+    aggs = await User.aggregate(aggs_def)
+    for bucket in aggs['countries']['buckets']:
+        print(bucket['key'], bucket['doc_count'])
+```
 
 <a id="advanced-usage"></a>
 ## 🔬 Advanced usage

@@ -9,14 +9,28 @@
 import os
 import sys
 
+from configparser import ConfigParser
+
 sys.path.insert(0, os.path.abspath('..'))
+sys.path.insert(0, os.path.abspath('.'))
+
+if True:
+    from changelog import generate_changelog
 
 project = 'ESORM - ElasticSearch ORM'
+# noinspection PyShadowingBuiltins
 copyright = '2023, Adam Wallner'
 author = 'Adam Wallner'
 
-version = '0.1.1'
-release = '0.1.1'
+# Get version from setup.cfg
+config = ConfigParser()
+config.read('../setup.cfg')
+
+# Generate changelog
+changelog = generate_changelog('wallneradam/esorm')
+
+version = config['metadata']['version']
+release = config['metadata']['version']
 
 extensions = [
     'sphinx.ext.autodoc',

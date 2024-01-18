@@ -142,13 +142,13 @@ class TestBaseTests:
         self.__class__.doc_id = doc_id  # Strange but it works
 
         # Create some other documents
-        doc_id = await model_nested(f_nested=model_timestamp(f_str="nested_test2")).save()
+        doc_id = await model_nested(f_nested=model_timestamp(f_str="nested_test2", f_int=2), f_float=1.0).save()
         assert doc_id is not None and len(doc_id) == 20, "Incorrect document id"
-        doc_id = await model_nested(f_nested=model_timestamp(f_str="nested_test3")).save()
+        doc_id = await model_nested(f_nested=model_timestamp(f_str="nested_test3", f_int=3), f_float=1.5).save()
         assert doc_id is not None and len(doc_id) == 20, "Incorrect document id"
-        doc_id = await model_nested(f_nested=model_timestamp(f_str="nested_test4")).save()
+        doc_id = await model_nested(f_nested=model_timestamp(f_str="nested_test4", f_int=4), f_float=2.0).save()
         assert doc_id is not None and len(doc_id) == 20, "Incorrect document id"
-        doc_id = await model_nested(f_nested=model_timestamp(f_str="nested_test5")).save()
+        doc_id = await model_nested(f_nested=model_timestamp(f_str="nested_test5", f_int=5), f_float=2.5).save()
         assert doc_id is not None and len(doc_id) == 20, "Incorrect document id"
 
     async def test_crud_get_by_id(self, es, esorm, model_nested, model_timestamp):
@@ -291,3 +291,74 @@ class TestBaseTests:
         })
         assert doc is not None
         assert doc.f_nested.f_str == 'nested_test3'
+
+    async def test_basic_aggregations(self, es, esorm, model_nested):
+        """
+        Test basic aggregations
+        """
+        if TYPE_CHECKING:
+            from esorm.query import ESQuery
+            from esorm.aggs import ESAggsResponse, ESAggs
+
+        # Test aggregations without query
+        aggs_def: 'ESAggs' = {
+            'f_int_sum': {
+                'sum': {
+                    'field': 'f_nested.f_int'
+                }
+            },
+            'f_int_avg': {
+                'avg': {
+                    'field': 'f_nested.f_int'
+                }
+            },
+            'f_int_min': {
+                'min': {
+                    'field': 'f_nested.f_int'
+                }
+            },
+            'f_int_max': {
+                'max': {
+                    'field': 'f_nested.f_int'
+                }
+            },
+        }
+        aggs: 'ESAggsResponse' = await model_nested.aggregate(aggs_def)
+        assert aggs['f_int_sum']['value'] == 14.0
+        assert aggs['f_int_avg']['value'] == 3.5
+        assert aggs['f_int_min']['value'] == 2.0
+        assert aggs['f_int_max']['value'] == 5.0
+
+        # Test aggregations with query
+        query: 'ESQuery' = {
+            'bool': {
+                'must': {
+                    'match': {
+                        'f_nested.f_str': 'nested_test2'
+                    }
+                }
+            }
+        }
+        aggs: 'ESAggsResponse' = await model_nested.aggregate(aggs_def, query=query)
+        assert aggs['f_int_sum']['value'] == 2.0
+        assert aggs['f_int_avg']['value'] == 2.0
+        assert aggs['f_int_min']['value'] == 2.0
+        assert aggs['f_int_max']['value'] == 2.0
+
+        # Test terms aggregation
+        aggs_def: 'ESAggs' = {
+            'f_int_terms': {
+                'terms': {
+                    'field': 'f_nested.f_int'
+                }
+            }
+        }
+        aggs: 'ESAggsResponse' = await model_nested.aggregate(aggs_def)
+        assert aggs['f_int_terms']['buckets'][0]['key'] == 2.0
+        assert aggs['f_int_terms']['buckets'][0]['doc_count'] == 1
+        assert aggs['f_int_terms']['buckets'][1]['key'] == 3.0
+        assert aggs['f_int_terms']['buckets'][1]['doc_count'] == 1
+        assert aggs['f_int_terms']['buckets'][2]['key'] == 4.0
+        assert aggs['f_int_terms']['buckets'][2]['doc_count'] == 1
+        assert aggs['f_int_terms']['buckets'][3]['key'] == 5.0
+        assert aggs['f_int_terms']['buckets'][3]['doc_count'] == 1

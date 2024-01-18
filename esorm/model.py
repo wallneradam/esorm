@@ -19,7 +19,7 @@ from pydantic import BaseModel, ConfigDict
 from pydantic.fields import Field, FieldInfo, PrivateAttr
 
 from .utils import snake_case
-from .aggs import ESAggregations
+from .aggs import ESAggs, ESAggsResponse
 
 from .error import InvalidResponseError, NotFoundError
 from .esorm import es
@@ -389,12 +389,14 @@ class ESModel(BaseModel, metaclass=_ESModelMeta):
             raise NotFoundError(f"Document with id {self.__id__} not found!")
 
     @classmethod
-    async def _search(cls: Type[TModel], query: ESQuery, *,
+    async def _search(cls: Type[TModel],
+                      query: Optional[ESQuery] = None,
+                      *,
                       page_size: Optional[int] = None,
                       page: Optional[int] = None,
                       sort: Optional[Union[list, str]] = None,
                       routing: Optional[str] = None,
-                      aggs: Optional[ESAggregations] = None,
+                      aggs: Optional[ESAggs] = None,
                       **kwargs) -> ESResponse:
         """
         Raw ES search method
@@ -428,7 +430,6 @@ class ESModel(BaseModel, metaclass=_ESModelMeta):
                      page: Optional[int] = None,
                      sort: Optional[Union[list, str]] = None,
                      routing: Optional[str] = None,
-                     aggs: Optional[ESAggregations] = None,
                      res_dict: bool = False,
                      **kwargs) -> Union[List[TModel], Dict[str, TModel]]:
         """
@@ -440,13 +441,11 @@ class ESModel(BaseModel, metaclass=_ESModelMeta):
         :param sort: Name of field to be sorted, or sort term list of dict, if not specified, model's default sort will
                      be used, or no sorting
         :param routing: Shard routing value
-        :param aggs: Aggregations
         :param res_dict: If the result should be a dict with id as key and model as value instead of a list of models
         :param kwargs: Other search API params
         :return: The result list
         """
-        res = await cls._search(query, page_size=page_size, page=page, sort=sort, routing=routing,
-                                aggs=aggs, **kwargs)
+        res = await cls._search(query, page_size=page_size, page=page, sort=sort, routing=routing, **kwargs)
         try:
             if res_dict:
                 return {hit['_id']: cls.from_es(hit) for hit in res['hits']['hits']}
@@ -455,18 +454,17 @@ class ESModel(BaseModel, metaclass=_ESModelMeta):
             return []
 
     @classmethod
-    async def search_one(cls: Type[TModel], query: ESQuery, *, routing: Optional[str] = None,
-                         aggs: Optional[ESAggregations] = None, **kwargs) -> Optional[TModel]:
+    async def search_one(cls: Type[TModel], query: ESQuery, *, routing: Optional[str] = None, **kwargs) \
+            -> Optional[TModel]:
         """
         Search Model and return the first result
 
         :param query: ElasticSearch query dict
         :param routing: Shard routing value
-        :param aggs: Aggregations
         :param kwargs: Other search API params
         :return: The first result or None if no result
         """
-        res = await cls.search(query, page_size=1, routing=routing, aggs=aggs, **kwargs)
+        res = await cls.search(query, page_size=1, routing=routing, **kwargs)
         if len(res) > 0:
             return res[0]
         else:
@@ -498,7 +496,7 @@ class ESModel(BaseModel, metaclass=_ESModelMeta):
                                page: Optional[int] = None,
                                sort: Optional[Union[list, str]] = None,
                                routing: Optional[str] = None,
-                               aggs: Optional[ESAggregations] = None,
+                               aggs: Optional[ESAggs] = None,
                                res_dict: bool = False,
                                **kwargs) -> List[TModel]:
         """
@@ -523,7 +521,7 @@ class ESModel(BaseModel, metaclass=_ESModelMeta):
     async def search_one_by_fields(cls: Type[TModel],
                                    fields: Dict[str, Union[str, int, float]],
                                    *, routing: Optional[str] = None,
-                                   aggs: Optional[ESAggregations] = None,
+                                   aggs: Optional[ESAggs] = None,
                                    **kwargs) -> Optional[TModel]:
         """
         Search Model by fields as key-value pairs and return the first result
@@ -536,6 +534,29 @@ class ESModel(BaseModel, metaclass=_ESModelMeta):
         """
         query = cls.create_query_from_dict(fields)
         return await cls.search_one(query, routing=routing, aggs=aggs, **kwargs)
+
+    @classmethod
+    async def aggregate(cls: Type[TModel],
+                        aggs: ESAggs,
+                        *,
+                        query: Optional[ESQuery] = None,
+                        routing: Optional[str] = None,
+                        **kwargs) -> ESAggsResponse:
+        """
+        Aggregate Model with aggregation dict
+        Before aggregation the model can be filtered by query dict.
+
+        :param aggs: Aggregation dict
+        :param query: ElasticSearch query dict
+        :param routing: Shard routing value
+        :param kwargs: Other search API params
+        :return: The result list
+        """
+        try:
+            res = await cls._search(query, aggs=aggs, routing=routing, page_size=0, **kwargs)
+            return res['aggregations']
+        except KeyError:
+            return {}
 
 
 class ESModelTimestamp(ESModel):
