@@ -33,6 +33,7 @@ but not as advanced (yet).</small>
     - [Search](#search)
         - [General search](#general-search)
         - [Search with field value terms (dictioanry search)](#search-with-field-value-terms-dictionary-search)
+    - [Aggregations](#aggregations)
 - [🔬 Advanced usage](#advanced-usage)
     - [Pagination and sorting](#pagination-and-sorting)
     - [Lazy properties](#lazy-properties)
