@@ -1,3 +1,5 @@
+from typing import List
+
 import sys
 import os
 import asyncio
@@ -152,7 +154,7 @@ def model_config(esorm):
             id_field = 'custom_id'
             default_sort = [{'f_str': {'order': 'desc'}}]
             settings = dict(
-                number_of_shards=3,
+                number_of_shards=6,
                 number_of_replicas=1,
                 refresh_interval="5s",
             )
@@ -162,6 +164,10 @@ def model_config(esorm):
 
         f_str: str
         """ Field to test """
+
+        @property
+        def __routing__(self) -> str:
+            return self.custom_id + '_routing'
 
     yield ConfigModel
 
@@ -198,3 +204,26 @@ def model_nested(esorm, model_timestamp):
     yield NestedFieldModel
 
     del NestedFieldModel
+
+
+# noinspection PyUnresolvedReferences
+@pytest.fixture(scope="class")
+def model_lazy_prop(esorm):
+    """
+    Model to test lazy properties
+    """
+
+    class LazyPropModel(esorm.ESModel):
+        class ESConfig:
+            lazy_property_max_recursion_depth = 1
+
+        f_str: str
+
+        # noinspection PyUnresolvedReferences
+        @esorm.lazy_property
+        async def same_f_strs(self) -> List['LazyPropModel']:
+            return await self.search_by_fields({'f_str': self.f_str})
+
+    yield LazyPropModel
+
+    del LazyPropModel

@@ -1,9 +1,3 @@
-# TODO: Query tests
-# TODO: Aggregation tests
-# TODO: Add tests for bulk operations
-# TODO: Sort and pagination tests
-# TODO: Fastapi integration tests
-# TODO: Watcher tests
 from typing import TYPE_CHECKING
 import pytest
 
@@ -68,7 +62,7 @@ class TestBaseTests:
         assert model_nested.ESConfig.index == 'esorm-nested_field_model'
 
     async def test_create_mappings(self, es, esorm, model_python, model_es, model_timestamp,
-                                   model_config, model_with_id, model_nested):
+                                   model_config, model_with_id, model_nested, model_lazy_prop):
         """
         Test create mappings
         """
@@ -111,7 +105,7 @@ class TestBaseTests:
             "Id fields should not be in mappings"
         # Check index settings
         settings = await es.indices.get_settings(index=model_config.ESConfig.index)
-        assert settings[model_config.ESConfig.index]['settings']['index']['number_of_shards'] == '3'
+        assert settings[model_config.ESConfig.index]['settings']['index']['number_of_shards'] == '6'
         assert settings[model_config.ESConfig.index]['settings']['index']['number_of_replicas'] == '1'
         assert settings[model_config.ESConfig.index]['settings']['index']['refresh_interval'] == '5s'
 
@@ -163,7 +157,7 @@ class TestBaseTests:
         assert doc.f_nested is not None
         assert doc.f_nested.f_str == "nested_test"
 
-    async def test_crud_update(self, es, esorm, model_nested, model_timestamp):
+    async def test_crud_update(self, es, esorm, model_nested):
         """
         Test update
         """
@@ -186,7 +180,7 @@ class TestBaseTests:
         assert doc.f_nested.created_at == created_at
 
     # noinspection PyBroadException
-    async def test_crud_delete(self, es, esorm, model_nested, model_timestamp):
+    async def test_crud_delete(self, es, esorm, model_nested):
         """
         Test delete
         """
@@ -203,6 +197,23 @@ class TestBaseTests:
         except Exception as e:
             assert e.__class__.__name__ == 'NotFoundError', "Incorrect exception"
             self.__class__.doc_id = None
+
+    async def test_bulk_operations(self, es, esorm, model_nested, model_timestamp):
+        """
+        Test bulk operations
+        """
+        # Creating documents
+        async with esorm.ESBulk(wait_for=True) as bulk:  # Here wait_for is important!
+            for i in range(10):
+                doc = model_nested(f_nested=model_timestamp(f_str=f"nested_test1{i}", f_int=10 + i), f_float=10.0 + i)
+                await bulk.save(doc)
+
+        # Deleting documents
+        async with esorm.ESBulk(wait_for=True) as bulk:  # Here wait_for is important!
+            for i in range(10):
+                doc = await model_nested.search_one_by_fields({'f_nested.f_str': f"nested_test1{i}"})
+                assert doc is not None
+                await bulk.delete(doc)
 
     async def test_search(self, es, esorm, model_nested):
         """
@@ -362,3 +373,154 @@ class TestBaseTests:
         assert aggs['f_int_terms']['buckets'][2]['doc_count'] == 1
         assert aggs['f_int_terms']['buckets'][3]['key'] == 5.0
         assert aggs['f_int_terms']['buckets'][3]['doc_count'] == 1
+
+    async def test_pagination(self, es, esorm, model_nested):
+        """
+        Test pagination
+        """
+        pagination = esorm.Pagination(page=1, page_size=2)
+        res = await pagination(model_nested).all()
+        assert len(res) == 2
+        assert res[0].f_nested.f_str == 'nested_test2'
+        assert res[1].f_nested.f_str == 'nested_test3'
+
+        pagination = esorm.Pagination(page=2, page_size=2)
+        res = await pagination(model_nested).all()
+        assert len(res) == 2
+        assert res[0].f_nested.f_str == 'nested_test4'
+        assert res[1].f_nested.f_str == 'nested_test5'
+
+    async def test_sort(self, es, esorm, model_nested):
+        """
+        Test sort
+        """
+        from esorm.model import set_max_lazy_property_concurrency
+        set_max_lazy_property_concurrency(2)
+
+        sort = esorm.Sort(sort=[{'f_nested.f_int': {'order': 'asc'}}])
+        res = await sort(model_nested).all()
+        assert len(res) == 4
+        assert res[0].f_nested.f_int == 2
+        assert res[1].f_nested.f_int == 3
+        assert res[2].f_nested.f_int == 4
+        assert res[3].f_nested.f_int == 5
+
+        sort = esorm.Sort(sort=[{'f_nested.f_int': {'order': 'desc'}}])
+        res = await sort(model_nested).all()
+        assert len(res) == 4
+        assert res[0].f_nested.f_int == 5
+        assert res[1].f_nested.f_int == 4
+        assert res[2].f_nested.f_int == 3
+        assert res[3].f_nested.f_int == 2
+
+        sort = esorm.Sort(sort='f_nested.f_int')
+        res = await sort(model_nested).all()
+        assert len(res) == 4
+        assert res[0].f_nested.f_int == 2
+        assert res[1].f_nested.f_int == 3
+        assert res[2].f_nested.f_int == 4
+        assert res[3].f_nested.f_int == 5
+
+    async def test_lazy_properties(self, es, esorm, model_lazy_prop):
+        """
+        Test lazy properties
+        """
+        esorm.model.set_max_lazy_property_concurrency(2)
+
+        # Create 3 documents with the same content
+        doc_id1 = await model_lazy_prop(f_str='test').save()
+        assert doc_id1 is not None
+        doc_id2 = await model_lazy_prop(f_str='test').save()
+        assert doc_id2 is not None
+        doc_id3 = await model_lazy_prop(f_str='test').save()
+        assert doc_id3 is not None
+        # Create 2 documents with different content
+        doc_id = await model_lazy_prop(f_str='test2').save()
+        assert doc_id is not None
+        doc_id = await model_lazy_prop(f_str='test3').save()
+        assert doc_id is not None
+
+        # Test lazy properties
+        sort = esorm.Sort(sort=[{'f_str': {'order': 'asc'}}])
+        docs = await sort(model_lazy_prop).all()
+        assert len(docs) == 5
+        assert docs[0].f_str == 'test'
+        same_f_strs = docs[0].same_f_strs
+        assert len(same_f_strs) == 3
+        assert same_f_strs[0].f_str == 'test'
+        assert same_f_strs[0]._id == doc_id1
+        assert same_f_strs[1].f_str == 'test'
+        assert same_f_strs[1]._id == doc_id2
+        assert same_f_strs[2].f_str == 'test'
+        assert same_f_strs[2]._id == doc_id3
+        assert docs[1].f_str == 'test'
+        assert len(docs[1].same_f_strs) == 3
+        assert docs[2].f_str == 'test'
+        assert len(docs[2].same_f_strs) == 3
+        assert docs[3].f_str == 'test2'
+        assert len(docs[3].same_f_strs) == 1
+        assert docs[4].f_str == 'test3'
+        assert len(docs[4].same_f_strs) == 1
+
+    async def test_shard_routing(self, es, esorm, model_config):
+        """
+        Test shard routing
+        """
+        doc = model_config(custom_id='test1', f_str='test1')
+        doc_id = await doc.save()
+        assert doc_id is not None
+        query = {
+            'bool': {
+                'must': {
+                    'match': {
+                        'f_str': 'test1'
+                    }
+                }
+            }
+        }
+        doc = await model_config.search_one(query)
+        assert doc is not None
+        assert doc._id == doc_id == "test1"
+        assert doc._routing == "test1_routing"
+
+        doc = model_config(custom_id='test2', f_str='test2')
+        doc_id = await doc.save()
+        assert doc_id is not None
+        query = {
+            'bool': {
+                'must': {
+                    'match': {
+                        'f_str': 'test2'
+                    }
+                }
+            }
+        }
+        docs = await model_config.search(query)
+        assert len(docs) == 1
+        doc = docs[0]
+        assert doc._id == doc_id == "test2"
+        assert doc._routing == "test2_routing"
+
+        # Test different routing search
+        docs = await model_config.search(query, routing="test1_routing")
+        assert len(docs) == 0
+        docs = await model_config.search(query, routing="test2_routing")
+        assert len(docs) == 1
+
+        # Override routing on save
+        doc = model_config(custom_id='test3', f_str='test3')
+        doc_id = await doc.save(routing="test3__routing__")
+        assert doc_id is not None
+        query = {
+            'bool': {
+                'must': {
+                    'match': {
+                        'f_str': 'test3'
+                    }
+                }
+            }
+        }
+        doc = await model_config.search_one(query)
+        assert doc is not None
+        assert doc._id == doc_id == "test3"
+        assert doc._routing == "test3__routing__"

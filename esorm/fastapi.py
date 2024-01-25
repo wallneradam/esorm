@@ -1,22 +1,17 @@
 """
 FastaAPI utilities for ESORM
 """
-from typing import Union, List, Dict, Callable, Awaitable, Type
-
-import asyncio
+from typing import Union, List, Dict
 
 import inspect
 import io
 import tokenize
 
 from enum import Enum
-from functools import wraps
 
 from fastapi import Response
-from fastapi.applications import AppType
-from fastapi.routing import APIRoute
 
-from .model import Pagination, Sort, ESModel
+from .model import Pagination, Sort
 from .utils import camel_case
 
 _max_page_size = 10000
@@ -25,8 +20,6 @@ __all__ = [
     'make_dep_pagination',
     'make_dep_sort',
     'set_max_page_size',
-    'wait_lazy_results',
-    'lazy_resuts_all_enpoints'
 ]
 
 
@@ -119,106 +112,3 @@ def make_dep_sort(**kwargs: Union[List[Dict[str, dict]], Dict[str, any]]) -> cal
         return Sort(sort=kwargs[_sort.name] if _sort else None)
 
     return _dep_sort
-
-
-#
-# Lazy properties
-#
-
-async def _lazy_process_endpoint_result(res: Union[List[ESModel], ESModel, Dict[str, ESModel]], concurrency: int = 5) \
-        -> Union[List[ESModel], ESModel, Dict[str, ESModel]]:
-    """
-    Process the result of the endpoint
-
-    :param res: The result of the endpoint
-    :param concurrency: The concurrency of the tasks
-    :return: The result of the endpoint
-    """
-    if isinstance(res, ESModel):
-        await res.calc_lazy_properties()
-
-    elif isinstance(res, list):
-        tasks = []
-        for r in res:
-            tasks.append(r.calc_lazy_properties())
-            if len(tasks) >= concurrency:
-                await asyncio.gather(*tasks)
-                tasks.clear()
-        if tasks:
-            await asyncio.gather(*tasks)
-
-    elif isinstance(res, dict):
-        tasks = []
-        for r in res.values():
-            tasks.append(r.calc_lazy_properties())
-            if len(tasks) >= concurrency:
-                await asyncio.gather(*tasks)
-                tasks.clear()
-        if tasks:
-            await asyncio.gather(*tasks)
-    else:
-        raise TypeError(f"Invalid return type: {type(res)}")
-
-    return res
-
-
-def wait_lazy_results(
-        func: Callable[..., Awaitable[Union[List[ESModel], ESModel, Dict[str, ESModel]]]] = None,
-        *,
-        concurrency: int = 5
-) -> Callable[..., Awaitable[Union[List[ESModel], ESModel, Dict[str, ESModel]]]]:
-    """
-    Decorator to wait for lazy properties to be computed
-
-    :param func: The function to decorate
-    :param concurrency: The concurrency of the tasks
-    :return: The decorated function
-    :raises TypeError: If the return type is not ESModel or list/dict of ESModel
-    """
-
-    def decorator(_func) -> Callable[..., Awaitable[Union[List[ESModel], ESModel, Dict[str, ESModel]]]]:
-        """ The actual decorator """
-
-        @wraps(_func)
-        async def wrapper(*args, **kwargs) -> Union[List[ESModel], ESModel, Dict[str, ESModel]]:
-            res = await _func(*args, **kwargs)
-            return await _lazy_process_endpoint_result(res, concurrency=concurrency)
-
-        return wrapper
-
-    if func is None:
-        return decorator()
-    return decorator(func)
-
-
-def lazy_resuts_all_enpoints(app: AppType):
-    """
-    Wait for lazy properties to be computed for all routes that returns ESModel or list/dict of ESModel
-
-    This will decorate all route endpoints of the app to make them wait for lazy properties to be computed.
-    NOTE: The method must be annotated to return ESModel or list/dict of ESModel, without annotation it won't work.
-
-    :param app: The FastAPI app
-    """
-
-    def is_esmodel_subclass(_response_model: Type) -> bool:
-        """ Check if the response model is ESModel or list/dict of ESModel """
-        # noinspection PyUnresolvedReferences
-        if isinstance(_response_model, type) and issubclass(_response_model, ESModel):
-            return True
-        elif hasattr(_response_model, "__origin__") and _response_model.__origin__ in [list, dict]:
-            return any(isinstance(arg, type) and issubclass(arg, ESModel) for arg in
-                       getattr(_response_model, "__args__", ()))
-        return False
-
-    for route in app.router.routes:
-        if isinstance(route, APIRoute):
-            # Check if endpoints return type is ESModel or list/dict of ESModel
-            response_model = route.response_model
-            if response_model:
-                try:
-                    if is_esmodel_subclass(response_model):
-                        # noinspection PyUnresolvedReferences
-                        route.dependant.call = wait_lazy_results(route.dependant.call)
-                except TypeError:
-                    continue

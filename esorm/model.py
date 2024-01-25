@@ -1,15 +1,17 @@
 """
 This module contains the ESModel classes and related functions
 """
-from typing import TypeVar, Any, Dict, Optional, Tuple, Type, Union, get_args, get_origin, List, Callable, Awaitable
+from typing import (TypeVar, Any, Dict, Optional, Tuple, Type, Union, get_args, get_origin, List, Callable,
+                    Awaitable, Literal)
+from typing_extensions import TypedDict
 
+import asyncio
 import ast
 import inspect
 import textwrap
 import traceback
-
+from contextvars import ContextVar
 from datetime import datetime, date, time
-
 from functools import wraps
 
 import elasticsearch
@@ -18,7 +20,7 @@ from pydantic import main as pydantic_main
 from pydantic import BaseModel, ConfigDict
 from pydantic.fields import Field, FieldInfo, PrivateAttr
 
-from .utils import snake_case
+from .utils import snake_case, utcnow
 from .aggs import ESAggs, ESAggsResponse
 
 from .error import InvalidResponseError, NotFoundError
@@ -36,8 +38,13 @@ __all__ = [
     'setup_mappings',
     'create_index_template',
     'set_default_index_prefix',
+    'set_max_lazy_property_concurrency',
     'lazy_property'
 ]
+
+#
+# Global variables and types
+#
 
 # noinspection PyProtectedMember
 _model_construction = getattr(pydantic_main, '_model_construction')
@@ -56,8 +63,20 @@ _pydantic_type_map = {
     time: 'date',
 }
 
+# TModel type variable
 TModel = TypeVar('TModel', bound='ESModel')
 
+# Context variable to store the current recursion depth of lazy properties
+_lazy_property_recursion_depth: ContextVar[int] = ContextVar('_lazy_property_recursion_depth', default=0)
+_lazy_semaphore_concurrency = 16
+_lazy_property_semaphore: ContextVar[asyncio.Semaphore] = ContextVar('_lazy_property_semaphore',
+                                                                     default=asyncio.Semaphore(
+                                                                         _lazy_semaphore_concurrency))
+
+
+#
+# Monkey patching to support field descriptions from docstrings
+#
 
 def _description_from_docstring(model: Type[BaseModel]):
     """
@@ -113,6 +132,20 @@ def _patch_set_model_fields():
 
 
 _patch_set_model_fields()
+
+
+#
+# ElasticSearch models
+#
+
+def set_default_index_prefix(default_index_prefix: str):
+    """
+    Set default index prefix we use for model and index creation
+
+    :param default_index_prefix: The default index prefix
+    """
+    global _default_index_prefix
+    _default_index_prefix = default_index_prefix
 
 
 class _ESModelMeta(ModelMetaclass):
@@ -173,19 +206,28 @@ class ESModel(BaseModel, metaclass=_ESModelMeta):
     _id: Optional[str] = PrivateAttr(None)
     """ The ES id of the document """
 
+    _routing: Optional[str] = PrivateAttr(None)
+    """ The routing of the document """
+
     class ESConfig:
         """ ESModel Config """
-        # The index name
         index: Optional[str] = None
-        # The name of the 'id' field
-        id_field: Optional[str] = None
-        # Default sort
-        default_sort: Optional[List[Dict[str, Dict[str, str]]]] = None
-        # ElasticSearch index settings
-        settings: Optional[Dict[str, Any]] = None
+        """ The index name """
 
-        # Lazy properties - it is filled by the metaclass
+        id_field: Optional[str] = None
+        """ The name of the 'id' field """
+
+        default_sort: Optional[List[Dict[str, Dict[str, str]]]] = None
+        """ Default sort """
+
+        settings: Optional[Dict[str, Any]] = None
+        """ Index settings """
+
+        lazy_property_max_recursion_depth: int = 1
+        """ Maximum recursion depth of lazy properties """
+
         _lazy_properties: Dict[str, Callable[[], Awaitable[Any]]] = {}
+        """ Lazy property async function definitions """
 
     # Pydantic model config
     model_config = ConfigDict(
@@ -276,9 +318,9 @@ class ESModel(BaseModel, metaclass=_ESModelMeta):
                 if isinstance(v, datetime):
                     # Update ESTimestamp fields
                     if k == 'modified_at' and d != _d:
-                        v = datetime.utcnow()
+                        v = utcnow()
                     elif k == 'created_at' and v is None and d != _d:
-                        v = datetime.utcnow()
+                        v = utcnow()
                     _d[k] = v.replace(tzinfo=None).isoformat() + 'Z'
                 # Convert subclasses
                 elif isinstance(v, dict):
@@ -311,15 +353,23 @@ class ESModel(BaseModel, metaclass=_ESModelMeta):
         obj = cls(**source)
         setattr(obj, '_id', _id)
 
+        # Set routing field
+        _routing = data.get("_routing", None)
+        setattr(obj, '_routing', _routing)
+
         return obj
 
     async def calc_lazy_properties(self):
         """
         (re)Calculate lazy properties
         """
+        _lazy_semaphore = _lazy_property_semaphore.get()
         # noinspection PyProtectedMember
         for attr_name, attr in self.ESConfig._lazy_properties.items():
-            setattr(self, '_' + attr_name, await attr(self))
+            async with _lazy_semaphore:
+                # If we use create_task, this creates a new context, so changed contextvars live only upward
+                res = await asyncio.create_task(attr(self))
+                setattr(self, '_' + attr_name, res)
 
     async def save(self, *, wait_for=False, pipeline: Optional[str] = None, routing: Optional[str] = None) -> str:
         """
@@ -369,7 +419,7 @@ class ESModel(BaseModel, metaclass=_ESModelMeta):
             kwargs['routing'] = routing
         try:
             es_res = await cls.call('get', **kwargs)
-            return cls.from_es(es_res)
+            return await _lazy_process_results(cls.from_es(es_res))
         except ElasticNotFoundError:
             raise NotFoundError(f"Document with id {id} not found")
 
@@ -448,8 +498,10 @@ class ESModel(BaseModel, metaclass=_ESModelMeta):
         res = await cls._search(query, page_size=page_size, page=page, sort=sort, routing=routing, **kwargs)
         try:
             if res_dict:
-                return {hit['_id']: cls.from_es(hit) for hit in res['hits']['hits']}
-            return [cls.from_es(hit) for hit in res['hits']['hits']]
+                res = {hit['_id']: cls.from_es(hit) for hit in res['hits']['hits']}
+            else:
+                res = [cls.from_es(hit) for hit in res['hits']['hits']]
+            return await _lazy_process_results(res)
         except KeyError:
             return []
 
@@ -536,6 +588,16 @@ class ESModel(BaseModel, metaclass=_ESModelMeta):
         return await cls.search_one(query, routing=routing, aggs=aggs, **kwargs)
 
     @classmethod
+    async def all(cls: Type[TModel], **kwargs) -> List[TModel]:
+        """
+        Get all documents
+
+        :param kwargs: Other search API params
+        :return: The result list
+        """
+        return await cls.search({'match_all': {}}, **kwargs)
+
+    @classmethod
     async def aggregate(cls: Type[TModel],
                         aggs: ESAggs,
                         *,
@@ -564,7 +626,7 @@ class ESModelTimestamp(ESModel):
     Model which stores `created_at` and `modified_at` fields automatcally.
     """
     created_at: Optional[datetime] = Field(None, description="Creation date and time")
-    modified_at: Optional[datetime] = Field(default_factory=datetime.utcnow, description="Modification date and time")
+    modified_at: Optional[datetime] = Field(default_factory=utcnow, description="Modification date and time")
 
     async def save(self, *, force_new=False, wait_for=False, pipeline: Optional[str] = None,
                    routing: Optional[str] = None) -> str:
@@ -621,7 +683,53 @@ class ESModelTimestamp(ESModel):
         return es_res.get('_id')
 
 
-# noinspection PyUnresolvedReferences
+#
+# Lazy properties
+#
+
+def set_max_lazy_property_concurrency(concurrency: int):
+    """
+    Set the maximum concurrency of processing lazy properties
+
+    If this is not set, the default is 16.
+
+    :param concurrency: The maximum concurrency
+    """
+    global _lazy_semaphore_concurrency
+    _lazy_semaphore_concurrency = concurrency
+    _lazy_property_semaphore.set(asyncio.Semaphore(concurrency))
+
+
+async def _lazy_process_results(res: Union[List[ESModel], ESModel, Dict[str, ESModel]]) \
+        -> Union[List[ESModel], ESModel, Dict[str, ESModel]]:
+    """
+    Process the results of ES query to calculate lazy properties recursively
+
+    :param res: The result of the endpoint
+    :return: The result of the endpoint
+    """
+    tasks = []
+
+    if isinstance(res, ESModel):
+        tasks.append(asyncio.create_task(res.calc_lazy_properties()))
+
+    elif isinstance(res, list):
+        for r in res:
+            tasks.append(asyncio.create_task(r.calc_lazy_properties()))
+
+    elif isinstance(res, dict):
+        for r in res.values():
+            tasks.append(asyncio.create_task(r.calc_lazy_properties()))
+
+    else:
+        raise TypeError(f"Invalid return type: {type(res)}")
+
+    # Wait for tasks to be ready
+    await asyncio.gather(*tasks)
+
+    return res
+
+
 def lazy_property(func: Callable[[], Awaitable[Any]]):
     """
     Decorator for lazy properties
@@ -631,22 +739,47 @@ def lazy_property(func: Callable[[], Awaitable[Any]]):
     :param func: The async function to decorate
     :return: The decorated function
     """
+    assert inspect.iscoroutinefunction(func), \
+        f"The function {func.__name__} must be a coroutine function"
+    assert inspect.signature(func).return_annotation is not inspect.Signature.empty, \
+        f"The function {func.__name__} must have a return annotation"
 
     @wraps(func)
     def wrapper(self):
+        # Initialize call stack if not exists
+        if not hasattr(self, '__lazy_call_stack__'):
+            self.__lazy_call_stack__ = []
+
         # Return the property with underscore prefix
         try:
             return getattr(self, '_' + func.__name__)
         except AttributeError:
             return None
 
+    @wraps(func)
+    async def async_wrapper(self, *args, **kwargs):
+        # Check recursion depth
+        depth = _lazy_property_recursion_depth.get()
+        if depth >= self.ESConfig.lazy_property_max_recursion_depth:
+            logger.warning(f"Recursion depth exceeded for {self.__class__.__name__}.{func.__name__}")
+            return None
+        # Increase recursion depth
+        _lazy_property_recursion_depth.set(depth + 1)
+        _lazy_property_semaphore.set(asyncio.Semaphore(_lazy_semaphore_concurrency))
+        # Call the original function
+        return await func(self, *args, **kwargs)
+
     # Create a property from it
     prop = property(wrapper)
     # Set the original function as __lazy_property_func__
-    setattr(wrapper, '__lazy_property__', func)
+    setattr(wrapper, '__lazy_property__', async_wrapper)
 
     return prop
 
+
+#
+# Pagination and sort
+#
 
 class Pagination(BaseModel):
     """
@@ -701,11 +834,18 @@ class Pagination(BaseModel):
         return Wrapped
 
 
+class SortOrder(TypedDict):
+    """
+    Order definition
+    """
+    order: Literal['asc', 'desc']
+
+
 class Sort(BaseModel):
     """
     Sort parameters
     """
-    sort: Union[list, str, None]
+    sort: Union[List[Dict[str, SortOrder]], str, None]
 
     def __call__(self, model_cls: Type[TModel]) -> Type[TModel]:
         """
@@ -742,15 +882,9 @@ class Sort(BaseModel):
         return Wrapped
 
 
-def set_default_index_prefix(default_index_prefix: str):
-    """
-    Set default index prefix we use for model and index creation
-
-    :param default_index_prefix: The default index prefix
-    """
-    global _default_index_prefix
-    _default_index_prefix = default_index_prefix
-
+#
+# Index templates and mappings
+#
 
 async def create_index_template(name: str,
                                 *,

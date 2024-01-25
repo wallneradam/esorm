@@ -17,3 +17,27 @@ img.logo {
     display: none;
 }
 
+
+/**
+ * Dark mode fixes
+ */
+
+/* Fix color of reference names */
+html[data-theme="dark"] .sig .sig-prename,
+html[data-theme="dark"] .sig .sig-name {
+    color: #bfbfbf !important;
+}
+
+
+html[data-theme="dark"] .sig.sig-object {
+    color: #959595 !important;
+}
+
+
+/* Fix method, attribute and class background color */
+html[data-theme="dark"] .method dt,
+html[data-theme="dark"] .class dt,
+html[data-theme="dark"] .attribute dt,
+html[data-theme="dark"] .exception dt {
+    background: #18181a !important;
+}

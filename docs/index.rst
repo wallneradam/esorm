@@ -11,6 +11,7 @@ Welcome to esorm's documentation!
    :caption: Contents
 
    Introduction <introduction>
+   Advanced Usage <advanced_usage>
    reference
    changelog
 

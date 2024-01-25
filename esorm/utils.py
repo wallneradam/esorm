@@ -2,6 +2,7 @@
 Utility functions
 """
 import re
+import datetime
 
 
 def snake_case(camel_str: str):
@@ -29,3 +30,12 @@ def camel_case(snake_str: str, capitalize_first: bool = False):
     if capitalize_first:
         components[0] = components[0].title()
     return components[0] + ''.join((x.title()) for x in components[1:])
+
+
+def utcnow():
+    """
+    Get current UTC time
+
+    :return: Current UTC time
+    """
+    return datetime.datetime.now(datetime.timezone.utc)

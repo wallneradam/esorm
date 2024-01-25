@@ -34,13 +34,12 @@ but not as advanced (yet).</small>
         - [General search](#general-search)
         - [Search with field value terms (dictioanry search)](#search-with-field-value-terms-dictionary-search)
     - [Aggregations](#aggregations)
-- [🔬 Advanced usage](#advanced-usage)
     - [Pagination and sorting](#pagination-and-sorting)
-    - [Lazy properties](#lazy-properties)
-    - [Shard routing](#shard-routing)
-    - [Watchers](#watchers)
-    - [FastAPI integration](#fastapi-integration)
-    - [Logging](#logging)
+- [🔬 Advanced usage](docs/advanced.md#advanced-usage) 
+    - [Lazy properties](docs/advanced.md#lazy-properties)
+    - [Shard routing](docs/advanced.md#shard-routing)
+    - [Watchers](docs/advanced.md#watchers)
+    - [FastAPI integration](docs/advanced.md#fastapi-integration)
 - [🧪 Testing](#testing)
 - [🛡 License](#license)
 - [📃 Citation](#citation)
@@ -66,7 +65,7 @@ pip install pyesorm
 - Context for bulk operations
 - Supported IDE autocompletion and type checking (PyCharm tested)
 - Everything in the source code is documented and annotated
-- TypeDicts for ElasticSearch queries and aggregations
+- `TypedDict`s for ElasticSearch queries and aggregations
 - Docstring support for fields
 - Shard routing support
 - Lazy properties
@@ -250,6 +249,8 @@ class User(ESModel):
         default_sort: Optional[List[Dict[str, Dict[str, str]]]] = None
         # ElasticSearch index settings (https://www.elastic.co/guide/en/elasticsearch/reference/current/index-modules.html)
         settings: Optional[Dict[str, Any]] = None
+        # Maximum recursion depth of lazy properties
+        lazy_property_max_recursion_depth: int = 1
 ```
 
 <a id="esmodeltimestamp"></a>
@@ -486,6 +487,9 @@ async def delete_user(user_id: str):
 <a id="bulk-operations"></a>
 ### Bulk operations
 
+Bulk operations could be much faster than single operations, if you have lot of documents to 
+create, update or delete.
+ 
 You can use context for bulk operations:
 
 ```python
@@ -508,11 +512,13 @@ async def bulk_create_users():
 
 
 async def bulk_delete_users(users: List[User]):
-    async with ESBulk() as bulk:
+    async with ESBulk(wait_for=True) as bulk:  # Here we wait for the bulk operation to finish
         # Deleting models
         for user in users:
             await bulk.delete(user)
 ```
+
+The `wait_for` argument is optional. If it is `True`, the context will wait for the bulk operation to finish.
 
 <a id="search"></a>
 ### Search
@@ -573,7 +579,7 @@ async def search_one_user():
     print(user.name)
 ```
 
-Queries are type checked, because they are annotated as TypeDicts. You can use IDE autocompletion and type checking.
+Queries are type checked, because they are annotated as `TypedDict`s. You can use IDE autocompletion and type checking.
 
 <a id="search-with-field-value-terms-dictionary-search"></a>
 #### Search with field value terms (dictionary search)
@@ -604,7 +610,7 @@ async def search_users():
 You can use `aggregate` method to get aggregations. 
 You can specify an ES aggregation query as a dictionary. It also accepts normal ES queries,
 to be able to fiter which documents you want to aggregate. 
-Both the aggs parameter and the query parameter are type checked, because they are annotated as TypeDicts.
+Both the aggs parameter and the query parameter are type checked, because they are annotated as `TypedDict`s.
 You can use IDE autocompletion and type checking.
 
 ```python
@@ -666,29 +672,72 @@ async def aggregate_terms():
         print(bucket['key'], bucket['doc_count'])
 ```
 
-<a id="advanced-usage"></a>
-## 🔬 Advanced usage
-
-TODO...
-These features may not documented yet, but working.
-
 <a id="pagination-and-sorting"></a>
 ### Pagination and sorting
 
-<a id="lazy-properties"></a>
-### Lazy properties
+You can use `Pagination` and `Sort` classes to decorate your models. They simply wrap your models
+and add pagination and sorting functionality to them.
 
-<a id="shard-routing"></a>
-### Shard routing
+#### Pagination
 
-<a id="watchers"></a>
-### Watchers
+```python
+from esorm.model import ESModel, Pagination
 
-<a id="fastapi-integration"></a>
-### FastAPI integration
 
-<a id="logging"></a>
-### Logging
+class User(ESModel):
+    id: int  # This will be used as the document _id in the index
+    name: str
+    age: int
+
+
+def get_users(page = 1, page_size = 10):
+    # 1st create the decorator itself
+    pagination = Pagination(page=page, page_size=page_size)
+    
+    # Then decorate your model
+    res = pagination(User).search_by_fields(age=18)
+    
+    # Here the result has maximum 10 items
+    return res
+```
+
+#### Sorting
+
+It is similar to pagination:
+
+```python
+from esorm.model import ESModel, Sort
+
+
+class User(ESModel):
+    id: int  # This will be used as the document _id in the index
+    name: str
+    age: int
+    
+    
+def get_users():
+    # 1st create the decorator itself
+    sort = Sort(sort=[
+        {'age': {'order': 'desc'}},
+        {'name': {'order': 'asc'}}
+    ])
+    
+    # Then decorate your model
+    res = sort(User).search_by_fields(age=18)
+    
+    # Here the result is sorted by age ascending
+    return res
+    
+def get_user_sorted_by_name():
+    # You can also use this simplified syntax 
+    sort = Sort(sort='name')
+    
+    # Then decorate your model
+    res = sort(User).all()
+    
+    # Here the result is sorted by age descending
+    return res
+```
 
 <a id="testing"></a>
 ## 🧪 Testing
