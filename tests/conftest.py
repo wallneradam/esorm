@@ -1,12 +1,12 @@
-from typing import List
+from typing import List, Optional
 
 import sys
 import os
 import asyncio
-import pytest
 import subprocess
 import importlib
 
+import pytest
 import logging
 
 logger = logging.getLogger(__name__)
@@ -27,7 +27,9 @@ def event_loop():
     """
     Use asyncio event loop in class scope
     """
-    return asyncio.get_event_loop()
+    loop = asyncio.get_event_loop()
+    yield loop
+    loop.close()
 
 
 #
@@ -52,7 +54,7 @@ async def esorm():
 
 
 @pytest.fixture(scope="class")  # Test both ES 8.x and 7.x
-async def docker_es(service):
+def docker_es(service):
     compose_file = os.path.join(os.path.dirname(__file__), 'docker-compose.yml')
     res = subprocess.run(['docker', 'compose', '-f', compose_file, 'up', '-d', service], check=True)
     logger.info(f"Started service: {service}")
@@ -72,7 +74,6 @@ async def es(docker_es, esorm):
     assert es is not None
     yield es
     await es.close()
-    assert es
 
 
 # noinspection PyUnresolvedReferences
@@ -105,8 +106,6 @@ def model_es(esorm):
     Model to test ES types
     """
 
-    from datetime import datetime, date, time
-
     class ESFieldModel(esorm.ESModel):
         f_keyword: esorm.fields.keyword
         f_text: esorm.fields.text
@@ -123,6 +122,30 @@ def model_es(esorm):
     yield ESFieldModel
 
     del ESFieldModel
+
+
+@pytest.fixture(scope="class")
+def model_es_optional(esorm):
+    """
+    Model to test optional ES types
+    """
+
+    class ESOptionalFieldModel(esorm.ESModel):
+        f_keyword: Optional[esorm.fields.keyword] = None
+        f_text: Optional[esorm.fields.text] = None
+        f_binary: Optional[esorm.fields.binary] = esorm.Field(None, index=False)
+        f_byte: Optional[esorm.fields.byte] = None
+        f_short: Optional[esorm.fields.short] = None
+        f_int32: Optional[esorm.fields.int32] = None
+        f_long: Optional[esorm.fields.long] = None
+        f_float16: Optional[esorm.fields.float16] = None
+        f_float32: Optional[esorm.fields.float32] = None
+        f_double: Optional[esorm.fields.double] = None
+        f_geo_point: Optional[esorm.fields.geo_point] = None
+
+    yield ESOptionalFieldModel
+
+    del ESOptionalFieldModel
 
 
 # noinspection PyUnresolvedReferences
@@ -227,3 +250,24 @@ def model_lazy_prop(esorm):
     yield LazyPropModel
 
     del LazyPropModel
+
+
+# noinspection PyUnresolvedReferences
+@pytest.fixture(scope="class")
+async def model_nested_binary(esorm):
+    """
+    Model to test nested binary fields
+    """
+    from pydantic import BaseModel
+
+    class BinaryModel(esorm.ESBaseModel):
+        f_binary: Optional[esorm.fields.binary] = esorm.Field(None, index=False)
+
+    class NestedBinaryModel(esorm.ESModel):
+        f_nested: BinaryModel
+
+    await esorm.setup_mappings()
+
+    yield BinaryModel, NestedBinaryModel
+    del BinaryModel
+    del NestedBinaryModel

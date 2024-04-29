@@ -1,6 +1,3 @@
-# Compose version
-version: "3.7"
-
 networks:
   esorm:
     name: esorm

@@ -30,6 +30,13 @@ class TestBaseTests:
         assert model_es is not None
         assert model_es.ESConfig.index == 'esorm-es_field_model'
 
+    async def test_create_model_with_es_optional_fields(self, es, esorm, model_es_optional):
+        """
+        Test model with ES fields
+        """
+        assert model_es_optional is not None
+        assert model_es_optional.ESConfig.index == 'esorm-es_optional_field_model'
+
     async def test_create_timestamp_models(self, es, esorm, model_timestamp):
         """
         Test timestamp models
@@ -61,8 +68,9 @@ class TestBaseTests:
         assert model_nested is not None
         assert model_nested.ESConfig.index == 'esorm-nested_field_model'
 
-    async def test_create_mappings(self, es, esorm, model_python, model_es, model_timestamp,
-                                   model_config, model_with_id, model_nested, model_lazy_prop):
+    async def test_create_mappings(self, es, esorm, model_python, model_es, model_es_optional,
+                                   model_timestamp, model_config, model_with_id, model_nested,
+                                   model_lazy_prop):
         """
         Test create mappings
         """
@@ -92,6 +100,20 @@ class TestBaseTests:
         assert mappings[model_es.ESConfig.index]['mappings']['properties']['f_float32']['type'] == 'float'
         assert mappings[model_es.ESConfig.index]['mappings']['properties']['f_double']['type'] == 'double'
         assert mappings[model_es.ESConfig.index]['mappings']['properties']['f_geo_point']['type'] == 'geo_point'
+        # Check if mappings are correct for ES Optional fields
+        mappings = await es.indices.get_mapping(index=model_es_optional.ESConfig.index)
+        assert mappings[model_es_optional.ESConfig.index]['mappings']['properties']['f_keyword']['type'] == 'keyword'
+        assert mappings[model_es_optional.ESConfig.index]['mappings']['properties']['f_text']['type'] == 'text'
+        assert mappings[model_es_optional.ESConfig.index]['mappings']['properties']['f_binary']['type'] == 'binary'
+        assert mappings[model_es_optional.ESConfig.index]['mappings']['properties']['f_byte']['type'] == 'byte'
+        assert mappings[model_es_optional.ESConfig.index]['mappings']['properties']['f_short']['type'] == 'short'
+        assert mappings[model_es_optional.ESConfig.index]['mappings']['properties']['f_int32']['type'] == 'integer'
+        assert mappings[model_es_optional.ESConfig.index]['mappings']['properties']['f_long']['type'] == 'long'
+        assert mappings[model_es_optional.ESConfig.index]['mappings']['properties']['f_float16']['type'] == 'half_float'
+        assert mappings[model_es_optional.ESConfig.index]['mappings']['properties']['f_float32']['type'] == 'float'
+        assert mappings[model_es_optional.ESConfig.index]['mappings']['properties']['f_double']['type'] == 'double'
+        assert mappings[model_es_optional.ESConfig.index]['mappings']['properties']['f_geo_point'][
+                   'type'] == 'geo_point'
         # Check if mappings are correct for timestamp fields
         mappings = await es.indices.get_mapping(index=model_timestamp.ESConfig.index)
         assert mappings[model_timestamp.ESConfig.index]['mappings']['properties']['created_at']['type'] == 'date'
@@ -524,3 +546,30 @@ class TestBaseTests:
         assert doc is not None
         assert doc._id == doc_id == "test3"
         assert doc._routing == "test3__routing__"
+
+    async def test_binary(self, es, esorm, model_es_optional):
+        """
+        Test binary fields
+        """
+        doc = model_es_optional(f_binary=b'\x01\x02\x03\x04')
+        doc_id = await doc.save()
+
+        assert doc_id is not None
+        doc = await model_es_optional.get(doc_id)
+        assert getattr(doc.f_binary, 'bytes') == b'\x01\x02\x03\x04'
+
+        # Modify binary field
+        doc.f_binary = b'\x05\x06\x07\x08'
+        await doc.save()
+        doc = await model_es_optional.get(doc_id)
+        assert getattr(doc.f_binary, 'bytes') == b'\x05\x06\x07\x08'
+
+    async def test_binary_nested(self, es, esorm, model_nested_binary):
+        """
+        Test nested binary fields
+        """
+        binary_model, nested_binary_model = model_nested_binary
+        doc = nested_binary_model(f_nested=binary_model())
+        doc.f_nested.f_binary = b'\x01\x02\x03\x04'
+        doc_id = await doc.save()
+        assert doc_id is not None

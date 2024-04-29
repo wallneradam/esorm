@@ -1,7 +1,7 @@
 #!/bin/sh
 
-# Tests in these python interpreters
-PYTHONS="python3.8 python3.9 python3.10 python3.11 python3.12"
+# Tests in these python interpreters or the default ones
+PYTHONS=${PYTHONS:-"python3.8 python3.9 python3.10 python3.11 python3.12"}
 
 # Check if docker is installed
 if ! [ -x "$(command -v docker)" ]; then

@@ -18,7 +18,9 @@ import elasticsearch
 from elasticsearch import NotFoundError as ElasticNotFoundError
 from pydantic import main as pydantic_main
 from pydantic import BaseModel, ConfigDict
-from pydantic.fields import Field, FieldInfo, PrivateAttr
+from pydantic.fields import Field, PrivateAttr
+# noinspection PyProtectedMember
+from pydantic.fields import FieldInfo  # It is just not in __all__ of pydantic.fields, but we strongly need it
 
 from .utils import snake_case, utcnow
 from .aggs import ESAggs, ESAggsResponse
@@ -32,6 +34,7 @@ from .logger import logger
 
 __all__ = [
     'TModel',
+    'ESBaseModel',
     'ESModel',
     'ESModelTimestamp',
     'Pagination', 'Sort',
@@ -198,7 +201,24 @@ class _ESModelMeta(ModelMetaclass):
         return model
 
 
-class ESModel(BaseModel, metaclass=_ESModelMeta):
+class ESBaseModel(BaseModel):
+    """
+    Base class for Elastic
+
+    It is useful for nested models, if you don't need the model in ES mappings
+    """
+
+    model_config = ConfigDict(
+        str_strip_whitespace=True,
+        extra="forbid",
+        populate_by_name=True,
+        arbitrary_types_allowed=True,
+        ser_json_bytes='base64',
+        validate_assignment=True,
+    )
+
+
+class ESModel(ESBaseModel, metaclass=_ESModelMeta):
     """
     ElasticSearch Base Model
     """
@@ -228,16 +248,6 @@ class ESModel(BaseModel, metaclass=_ESModelMeta):
 
         _lazy_properties: Dict[str, Callable[[], Awaitable[Any]]] = {}
         """ Lazy property async function definitions """
-
-    # Pydantic model config
-    model_config = ConfigDict(
-        str_strip_whitespace=True,
-        extra="forbid",
-        populate_by_name=True,
-        arbitrary_types_allowed=True,
-        ser_json_bytes='base64',
-        validate_assignment=True,
-    )
 
     @property
     def __id__(self) -> str:

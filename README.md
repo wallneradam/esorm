@@ -17,6 +17,7 @@ but not as advanced (yet).</small>
         - [Python basic types](#python-basic-types)
         - [ESORM field types](#esorm-field-types)
         - [Nested documents](#nested-documents)
+        - [ESBaseModel](#esbasemodel)
         - [Id field](#id-field)
         - [Model Settings](#model-settings)
         - [Describe fields](#describe-fields)
@@ -93,8 +94,11 @@ Tested with Python 3.8 through 3.12.
 <a id="define-a-model"></a>
 ### Define a model
 
-You can use all [Pydantic](https://pydantic-docs.helpmanual.io/usage/models/) model features, because
-`ESModel` is a subclass of `pydantic.BaseModel`.
+You can use all [Pydantic](https://pydantic-docs.helpmanual.io/usage/models/) model features, because `ESModel` is a subclass of `pydantic.BaseModel`.
+(Actually it is a subclass of `ESBaseModel`, see more [below...](#esbasemodel))
+
+`ESModel` extends pydantic `BaseModel` with ElasticSearch specific features. It serializes and deserializes
+documents to and from ElasticSearch types and handle ElasticSearch operations in the background.
 
 <a id="python-basic-types"></a>
 #### Python basic types
@@ -155,6 +159,11 @@ The supported fields are:
 | `boolean`                 | `boolean`    |
 | `geo_point`               | `geo_point`  |
 
+The `binary` field accepts **base64** encoded strings. However, if you provide `bytes` to it, they 
+will be automatically converted to a **base64** string during serialization. When you retrieve the 
+field, it will always be a **base64** encoded string. You can easily convert it back to bytes using 
+the `bytes()` method: `binary_field.bytes()`.
+
 <a id="nested-documents"></a>
 #### Nested documents
 
@@ -174,6 +183,32 @@ class Post(ESModel):
     content: text
     writer: User  # User is a nested document
 ```
+
+
+<a id="esbasemodel"></a>
+#### ESBaseModel
+
+`ESBaseModel` is the base of `ESModel`, also it is useful to use it for nested documents, 
+because by using it will not be included in the ElasticSearch index.
+
+```python
+from esorm import ESModel, ESBaseModel
+from esorm.fields import keyword, text, byte
+
+
+# This way `User` model won't be in the index
+class User(ESBaseModel):  # <---------------
+    name: text
+    email: keyword
+    age: byte = 18
+
+
+class Post(ESModel):
+    title: text
+    content: text
+    writer: User  # User is a nested document
+
+```  
 
 <a id="id-field"></a>
 #### Id field
