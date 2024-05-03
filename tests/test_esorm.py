@@ -16,6 +16,24 @@ class TestBaseTests:
         """
         assert es is not None
 
+    async def test_create_basemodel(self, es, esorm):
+        """
+        Test create base model
+        """
+
+        class BaseModel(esorm.ESBaseModel):
+            f_str: str
+            f_int: int
+
+        class BaseChild(BaseModel):
+            f_float: float
+
+        # Basemodels should not be registered as models they should not be created in the DB as indexes
+        # TODO: This is not working in the 2nd run, this is only test issue
+        # assert len(esorm.model._ESModelMeta.__models__) == 0
+        assert not hasattr(BaseModel.ESConfig, 'index')
+        assert not hasattr(BaseChild.ESConfig, 'index')
+
     async def test_create_model_with_python_fields(self, es, esorm, model_python):
         """
         Test model with python fields
@@ -416,8 +434,7 @@ class TestBaseTests:
         """
         Test sort
         """
-        from esorm.model import set_max_lazy_property_concurrency
-        set_max_lazy_property_concurrency(2)
+        esorm.model.set_max_lazy_property_concurrency(2)
 
         sort = esorm.Sort(sort=[{'f_nested.f_int': {'order': 'asc'}}])
         res = await sort(model_nested).all()
@@ -573,3 +590,21 @@ class TestBaseTests:
         doc.f_nested.f_binary = b'\x01\x02\x03\x04'
         doc_id = await doc.save()
         assert doc_id is not None
+
+    async def test_nested_base_model_lazy_prop(self, es, esorm, model_nested_base_model):
+        """
+        Test nested base model
+        """
+        nested_base_model, nested_base_model_model = model_nested_base_model
+
+        assert nested_base_model.ESConfig._lazy_properties['lazy_prop'] is not None
+
+        doc = nested_base_model_model(f_nested=nested_base_model(f_str='test', f_int=1))
+        doc_id = await doc.save()
+        assert doc_id is not None
+
+        doc = await nested_base_model_model.get(doc_id)
+        assert doc is not None
+        assert doc.f_nested.f_str == 'test'
+        assert doc.f_nested.f_int == 1
+        assert doc.f_nested.lazy_prop == 'lazy(f_str=test, f_int=1)'

@@ -44,10 +44,10 @@ async def esorm():
     This way it can be removed too
     """
     esorm = importlib.import_module('esorm')
-    esorm_model = importlib.import_module('esorm.model')
     # It should be empty for every class
-    assert len(esorm_model._ESModelMeta.__models__) == 0
+    assert len(esorm.model._ESModelMeta.__models__) == 0
     yield esorm
+    esorm.model._ESModelMeta.__models__.clear()
     for module_name in list(sys.modules):
         if module_name.startswith('esorm'):
             del sys.modules[module_name]
@@ -258,7 +258,6 @@ async def model_nested_binary(esorm):
     """
     Model to test nested binary fields
     """
-    from pydantic import BaseModel
 
     class BinaryModel(esorm.ESBaseModel):
         f_binary: Optional[esorm.fields.binary] = esorm.Field(None, index=False)
@@ -271,3 +270,29 @@ async def model_nested_binary(esorm):
     yield BinaryModel, NestedBinaryModel
     del BinaryModel
     del NestedBinaryModel
+
+
+@pytest.fixture(scope="class")
+async def model_nested_base_model(esorm):
+    """
+    Model to test nested base model
+    """
+    from asyncio import sleep
+
+    class NestedBaseModel(esorm.ESBaseModel):
+        f_str: str
+        f_int: int
+
+        @esorm.lazy_property
+        async def lazy_prop(self) -> str:
+            await sleep(0.1)
+            return f'lazy(f_str={self.f_str}, f_int={self.f_int})'
+
+    class NestedBaseModelModel(esorm.ESModel):
+        f_nested: NestedBaseModel
+
+    await esorm.setup_mappings()
+
+    yield NestedBaseModel, NestedBaseModelModel
+    del NestedBaseModel
+    del NestedBaseModelModel

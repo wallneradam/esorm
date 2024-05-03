@@ -1,7 +1,7 @@
 """
 Bulk operation for ElasticSearch
 """
-from datetime import datetime, UTC
+from .utils import utcnow
 
 from .model import TModel, ESModelTimestamp
 from .esorm import es
@@ -51,7 +51,7 @@ class ESBulk:
             index['routing'] = routing
 
         if isinstance(model, ESModelTimestamp):
-            document['modified_at'] = datetime.now(UTC)
+            document['modified_at'] = utcnow()
 
         self._actions.append({'index': index, })
         self._actions.append(document)

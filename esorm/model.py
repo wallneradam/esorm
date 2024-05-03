@@ -163,7 +163,9 @@ class _ESModelMeta(ModelMetaclass):
     def __new__(cls: Type[ModelMetaclass], name: str, bases: Tuple[type, ...],
                 namespace: Dict[str, Any], **kwds: Any):
         model: Type[BaseModel] = super().__new__(cls, name, bases, namespace, **kwds)
-        if name not in ("ESModel", "ESModelTimestamp"):
+        if name not in ("ESModel", "ESModelTimestamp", "ESBaseModel"):
+            is_model = issubclass(model, ESModel)
+
             # ESConfig inheritance
             m_dict = {k: v for k, v in ESModel.ESConfig.__dict__.items() if k[0] != '_'}
             if bases and 'ESConfig' in bases[0].__dict__:
@@ -177,16 +179,17 @@ class _ESModelMeta(ModelMetaclass):
             model.ESConfig = type('ESConfig', (object,), dict(m_dict))
 
             # Set default index name if not already set
-            if not getattr(model.ESConfig, 'index', None):
+            if is_model and not getattr(model.ESConfig, 'index', None):
                 # Default index is the name of the class in snake_case
                 model.ESConfig.index = _default_index_prefix + '-' + snake_case(name)
 
             # If there is an 'id' field, set it as id_field
-            if 'id' in model.model_fields.keys():
+            if is_model and 'id' in model.model_fields.keys():
                 model.ESConfig.id_field = 'id'
 
             # Add to models
-            cls.__models__[model.ESConfig.index] = model
+            if is_model:
+                cls.__models__[model.ESConfig.index] = model
 
             # Collect lazy properties
             for attr_name, attr in namespace.items():
@@ -201,12 +204,25 @@ class _ESModelMeta(ModelMetaclass):
         return model
 
 
-class ESBaseModel(BaseModel):
+class ESBaseModel(BaseModel, metaclass=_ESModelMeta):
     """
     Base class for Elastic
 
     It is useful for nested models, if you don't need the model in ES mappings
     """
+
+    class ESConfig:
+        """
+        ESBaseModel Config
+
+        This is just for lazy properties, to make ESBasemodel compatible with them
+        """
+
+        lazy_property_max_recursion_depth: int = 1
+        """ Maximum recursion depth of lazy properties """
+
+        _lazy_properties: Dict[str, Callable[[], Awaitable[Any]]] = {}
+        """ Lazy property async function definitions """
 
     model_config = ConfigDict(
         str_strip_whitespace=True,
@@ -217,8 +233,25 @@ class ESBaseModel(BaseModel):
         validate_assignment=True,
     )
 
+    async def calc_lazy_properties(self):
+        """
+        (re)Calculate lazy properties
+        """
+        _lazy_semaphore = _lazy_property_semaphore.get()
+        # noinspection PyProtectedMember
+        for attr_name, attr in self.ESConfig._lazy_properties.items():
+            async with _lazy_semaphore:
+                # If we use create_task, this creates a new context, so changed contextvars live only upward
+                res = await asyncio.create_task(attr(self))
+                setattr(self, '_' + attr_name, res)
 
-class ESModel(ESBaseModel, metaclass=_ESModelMeta):
+        # Calc lazy properties for nested models
+        for k, v in self.__dict__.items():
+            if isinstance(v, ESBaseModel):
+                await v.calc_lazy_properties()
+
+
+class ESModel(ESBaseModel):
     """
     ElasticSearch Base Model
     """
@@ -368,18 +401,6 @@ class ESModel(ESBaseModel, metaclass=_ESModelMeta):
         setattr(obj, '_routing', _routing)
 
         return obj
-
-    async def calc_lazy_properties(self):
-        """
-        (re)Calculate lazy properties
-        """
-        _lazy_semaphore = _lazy_property_semaphore.get()
-        # noinspection PyProtectedMember
-        for attr_name, attr in self.ESConfig._lazy_properties.items():
-            async with _lazy_semaphore:
-                # If we use create_task, this creates a new context, so changed contextvars live only upward
-                res = await asyncio.create_task(attr(self))
-                setattr(self, '_' + attr_name, res)
 
     async def save(self, *, wait_for=False, pipeline: Optional[str] = None, routing: Optional[str] = None) -> str:
         """
@@ -720,7 +741,7 @@ async def _lazy_process_results(res: Union[List[ESModel], ESModel, Dict[str, ESM
     """
     tasks = []
 
-    if isinstance(res, ESModel):
+    if isinstance(res, ESBaseModel):
         tasks.append(asyncio.create_task(res.calc_lazy_properties()))
 
     elif isinstance(res, list):
