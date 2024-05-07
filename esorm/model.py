@@ -488,10 +488,7 @@ class ESModel(ESBaseModel):
         if pipeline is not None:
             kwargs['pipeline'] = pipeline
 
-        if routing is not None:
-            kwargs['routing'] = routing
-        else:
-            kwargs['routing'] = self.__routing__
+        kwargs['routing'] = routing if routing is not None else self.__routing__
 
         if self._primary_term is not None:
             kwargs['if_primary_term'] = self._primary_term
@@ -519,7 +516,7 @@ class ESModel(ESBaseModel):
         :raises esorm.error.NotFoundError: Returned if document not found
         :return: ESModel object
         """
-        kwargs = {'id': id, 'routing': routing if routing else cls.__routing__}
+        kwargs = {'id': id}
         try:
             es_res = await cls.call('get', **kwargs)
             return await _lazy_process_results(cls.from_es(es_res))
