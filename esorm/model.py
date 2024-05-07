@@ -258,7 +258,7 @@ class ESModel(ESBaseModel):
     """
 
     _id: Optional[str] = PrivateAttr(None)
-    """ The ES id of the document """
+    """ The ES id of the document (it is always a string) """
 
     _routing: Optional[str] = PrivateAttr(None)
     """ The routing of the document """
@@ -474,7 +474,7 @@ class ESModel(ESBaseModel):
                          tests. Defaults to False.
         :param pipeline: Pipeline to use for indexing
         :param routing: Shard routing value
-        :return: The new document's ID
+        :return: The new document's ID, it is always a string, even if the id field is an integer
         """
         kwargs = dict(
             document=self.to_es(),
@@ -519,11 +519,7 @@ class ESModel(ESBaseModel):
         :raises esorm.error.NotFoundError: Returned if document not found
         :return: ESModel object
         """
-        kwargs = dict(id=str(id))
-        if routing:
-            kwargs['routing'] = routing
-        else:
-            kwargs['routing'] = cls.__routing__
+        kwargs = {'id': id, 'routing': routing if routing else cls.__routing__}
         try:
             es_res = await cls.call('get', **kwargs)
             return await _lazy_process_results(cls.from_es(es_res))

@@ -79,6 +79,22 @@ class TestBaseTests:
         assert model_with_id.ESConfig.index == 'esorm-id_model'
         assert model_with_id.ESConfig.id_field == 'id'
 
+    async def test_create_model_with_int_id(self, es, esorm, model_with_int_id):
+        """
+        Test model with int id
+        """
+        assert model_with_int_id is not None
+        assert model_with_int_id.ESConfig.index == 'esorm-int_id_model'
+        assert model_with_int_id.ESConfig.id_field == 'custom_id'
+
+    async def test_create_model_with_prop_id(self, es, esorm, model_with_prop_id):
+        """
+        Test model with property id
+        """
+        assert model_with_prop_id is not None
+        assert model_with_prop_id.ESConfig.index == 'esorm-prop_id_model'
+        assert model_with_prop_id.ESConfig.id_field is None
+
     async def test_create_nested_model(self, es, esorm, model_nested):
         """
         Test nested model
@@ -87,8 +103,8 @@ class TestBaseTests:
         assert model_nested.ESConfig.index == 'esorm-nested_field_model'
 
     async def test_create_mappings(self, es, esorm, model_python, model_es, model_es_optional,
-                                   model_timestamp, model_config, model_with_id, model_nested,
-                                   model_lazy_prop):
+                                   model_timestamp, model_config, model_with_id, model_with_int_id,
+                                   model_with_prop_id, model_nested, model_lazy_prop):
         """
         Test create mappings
         """
@@ -155,6 +171,18 @@ class TestBaseTests:
         assert 'id' not in mappings[model_with_id.ESConfig.index]['mappings']['properties'], \
             "Id fields should not be in mappings"
 
+        # Check if mappings are correct for model with int id
+        mappings = await es.indices.get_mapping(index=model_with_int_id.ESConfig.index)
+        assert mappings[model_with_int_id.ESConfig.index]['mappings']['properties']['f_str']['type'] == 'keyword'
+        assert 'custom_id' not in mappings[model_with_int_id.ESConfig.index]['mappings']['properties'], \
+            "Id fields should not be in mappings"
+
+        # Check if mappings are correct for model with prop id
+        mappings = await es.indices.get_mapping(index=model_with_prop_id.ESConfig.index)
+        assert mappings[model_with_prop_id.ESConfig.index]['mappings']['properties']['f_str']['type'] == 'keyword'
+        # It is used in the id, but remains in the db
+        assert mappings[model_with_prop_id.ESConfig.index]['mappings']['properties']['custom_id']['type'] == 'long'
+
         # Check if mappings are correct for nested model
         mappings = await es.indices.get_mapping(index=model_nested.ESConfig.index)
         assert 'properties' in mappings[model_nested.ESConfig.index]['mappings']['properties']['f_nested'], \
@@ -201,6 +229,36 @@ class TestBaseTests:
         assert doc._version == 1
         assert doc._primary_term == 1
         assert doc._seq_no == 0
+
+    async def test_crud_get_by_int_id(self, es, esorm, model_with_int_id):
+        """
+        Test get by int id
+        """
+        # Create a document
+        doc_id = await model_with_int_id(custom_id=1, f_str="int_id_test").save()
+        assert doc_id == "1"
+
+        # Get by id
+        doc = await model_with_int_id.get(1)
+        assert doc is not None
+        assert doc.custom_id == 1
+        assert doc.f_str == "int_id_test"
+        assert doc._id == "1"
+
+    async def test_crud_get_by_prop_id(self, es, esorm, model_with_prop_id):
+        """
+        Test get by prop id
+        """
+        # Create a document
+        doc_id = await model_with_prop_id(custom_id=1, f_str="prop_id_test").save()
+        assert doc_id == "1001"
+
+        # Get by id
+        doc = await model_with_prop_id.get(1001)
+        assert doc is not None
+        assert doc.custom_id == 1
+        assert doc.f_str == "prop_id_test"
+        assert doc._id == "1001"
 
     async def test_crud_update(self, es, esorm, model_nested):
         """

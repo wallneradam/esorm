@@ -215,6 +215,45 @@ def model_with_id(esorm):
 
 # noinspection PyUnresolvedReferences
 @pytest.fixture(scope="class")
+def model_with_int_id(esorm):
+    """
+    Model to test int id field
+    """
+
+    class IntIdModel(esorm.ESModel):
+        class ESConfig:
+            id_field = 'custom_id'
+
+        custom_id: int
+        f_str: str
+
+    yield IntIdModel
+
+    del IntIdModel
+
+
+# noinspection PyUnresolvedReferences
+@pytest.fixture(scope="class")
+def model_with_prop_id(esorm):
+    """
+    Model to test property id field
+    """
+
+    class PropIdModel(esorm.ESModel):
+        @property
+        def __id__(self) -> int:
+            return self.custom_id + 1000
+
+        custom_id: int
+        f_str: str
+
+    yield PropIdModel
+
+    del PropIdModel
+
+
+# noinspection PyUnresolvedReferences
+@pytest.fixture(scope="class")
 def model_nested(esorm, model_timestamp):
     """
     Model to test nested fields
