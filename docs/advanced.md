@@ -85,6 +85,34 @@ async def test_bulk():
         print("Bulk error:", e.failed_operations)
 ```
 
+### Retry on conflict
+
+You can use the `retry_on_conflict` decorator to automatically retry the operation(s) on conflict:
+```python
+import asyncio
+from esorm import ESModel, retry_on_conflict
+
+
+class User(ESModel):
+    first_name: str
+    last_name: str
+    logins: int = 0
+
+
+async def test_retry_on_conflict(user: User):    
+    @retry_on_conflict(3)  # Retry 3 times on conflict
+    async def login(user_id):
+        _user = await User.get(id=user_id)
+        _user.logins += 1
+    
+    # This won't raise a ConflictError   
+    await asyncio.gather(
+        login(user._id),
+        login(user._id),
+        login(user._id),
+    )
+```
+
 <a id="lazy-properties"></a>
 ## Lazy properties
 
