@@ -43,7 +43,7 @@ __all__ = [
     'set_default_index_prefix',
     'set_max_lazy_property_concurrency',
     'lazy_property',
-    'retry_on_confict'
+    'retry_on_conflict'
 ]
 
 #
