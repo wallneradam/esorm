@@ -262,6 +262,15 @@ class ESModel(ESBaseModel):
     _routing: Optional[str] = PrivateAttr(None)
     """ The routing of the document """
 
+    _version: Optional[int] = PrivateAttr(None)
+    """ The version of the document """
+
+    _primary_term: Optional[int] = PrivateAttr(None)
+    """ The primary term of the document """
+
+    _seq_no: Optional[int] = PrivateAttr(None)
+    """ The sequence number of the document """
+
     class ESConfig:
         """ ESModel Config """
         index: Optional[str] = None
@@ -321,6 +330,7 @@ class ESModel(ESBaseModel):
             kwargs['refresh'] = "wait_for"
         if 'request_timeout' not in kwargs:
             kwargs['request_timeout'] = 60
+
         return await method(index=index, **kwargs)
 
     def to_es(self, **kwargs) -> dict:
@@ -372,6 +382,41 @@ class ESModel(ESBaseModel):
         recursive_convert(d)
         return d
 
+    def update_from_es(self, data: Dict[str, Any]):
+        """
+        Update the model from ElasticSearch data
+
+        :param data: The ElasticSearch data
+        :raises esorm.error.InvalidResponseError: Returned when _id or _source is missing from data
+        """
+        if not data:
+            return None
+
+        source: Optional[dict] = data.get("_source", None)
+        # Get id field
+        _id = data.get("_id", None)
+        if not source or not _id:
+            raise InvalidResponseError
+
+        for k, v in source.items():
+            if k in self.__fields_set__:
+                print(k, '=', v)
+                setattr(self, k, v)
+
+        # Set routing field
+        _routing = data.get("_routing", None)
+        setattr(self, '_routing', _routing)
+
+        # Set version field
+        _version = data.get("_version", None)
+        setattr(self, '_version', _version)
+        # Set primary term field
+        _primary_term = data.get("_primary_term", None)
+        setattr(self, '_primary_term', _primary_term)
+        # Set seq_no field
+        _seq_no = data.get("_seq_no", None)
+        setattr(self, '_seq_no', _seq_no)
+
     @classmethod
     def from_es(cls: Type[TModel], data: Dict[str, Any]) -> Optional[TModel]:
         """
@@ -385,8 +430,8 @@ class ESModel(ESBaseModel):
             return None
 
         source: Optional[dict] = data.get("_source", None)
+        # Get id field
         _id = data.get("_id", None)
-
         if not source or not _id:
             raise InvalidResponseError
 
@@ -394,11 +439,23 @@ class ESModel(ESBaseModel):
         if source is not None and cls.ESConfig.id_field:
             source[cls.ESConfig.id_field] = _id
         obj = cls(**source)
+
+        # Set id field
         setattr(obj, '_id', _id)
 
         # Set routing field
         _routing = data.get("_routing", None)
         setattr(obj, '_routing', _routing)
+
+        # Set version field
+        _version = data.get("_version", None)
+        setattr(obj, '_version', _version)
+        # Set primary term field
+        _primary_term = data.get("_primary_term", None)
+        setattr(obj, '_primary_term', _primary_term)
+        # Set seq_no field
+        _seq_no = data.get("_seq_no", None)
+        setattr(obj, '_seq_no', _seq_no)
 
         return obj
 
@@ -422,17 +479,33 @@ class ESModel(ESBaseModel):
             document=self.to_es(),
             wait_for=wait_for,
         )
+
         kwargs['id'] = self.__id__
         if self.ESConfig.id_field:
             del kwargs['document'][self.ESConfig.id_field]
+
         if pipeline is not None:
             kwargs['pipeline'] = pipeline
+
         if routing is not None:
             kwargs['routing'] = routing
         else:
             kwargs['routing'] = self.__routing__
+
+        if self._primary_term is not None:
+            kwargs['if_primary_term'] = self._primary_term
+        if self._seq_no is not None:
+            kwargs['if_seq_no'] = self._seq_no
+
         es_res = await self.call('index', **kwargs)
-        return es_res.get('_id')
+
+        # Update private fields
+        self._id = es_res.get('_id', None)
+        self._version = es_res.get('_version', None)
+        self._primary_term = es_res.get('_primary_term', None)
+        self._seq_no = es_res.get('_seq_no', None)
+        # Return the new document's ID
+        return self._id
 
     # noinspection PyShadowingBuiltins
     @classmethod
@@ -448,6 +521,8 @@ class ESModel(ESBaseModel):
         kwargs = dict(id=str(id))
         if routing:
             kwargs['routing'] = routing
+        else:
+            kwargs['routing'] = cls.__routing__
         try:
             es_res = await cls.call('get', **kwargs)
             return await _lazy_process_results(cls.from_es(es_res))
@@ -456,7 +531,7 @@ class ESModel(ESBaseModel):
 
     async def delete(self, *, wait_for=False, routing: Optional[str] = None):
         """
-        Deletes document from elasticsearch.
+        Deletes document from ElasticSearch.
 
         :param wait_for: Waits for all shards to sync before returning response - useful when writing
                          tests. Defaults to False.
@@ -464,10 +539,32 @@ class ESModel(ESBaseModel):
         :raises esorm.error.NotFoundError: Returned if document not found
         :raises ValueError: Returned when id attribute missing from instance
         """
+        kwargs = dict(id=self.__id__)
+        if self._primary_term is not None:
+            kwargs['if_primary_term'] = self._primary_term
+        if self._seq_no is not None:
+            kwargs['if_seq_no'] = self._seq_no
         try:
-            await self.call('delete', wait_for=wait_for, id=self.__id__, routing=routing)
+            await self.call('delete', wait_for=wait_for,
+                            routing=routing if routing is not None else self.__routing__,
+                            **kwargs)
         except ElasticNotFoundError:
             raise NotFoundError(f"Document with id {self.__id__} not found!")
+
+    async def reload(self, *, routing: Optional[str] = None) -> TModel:
+        """
+        Reloads the document from ElasticSearch
+
+        :param routing: Shard routing value
+        :raises esorm.error.NotFoundError: Returned if document not found
+        """
+        kwargs = dict(id=self.__id__, routing=routing if routing is not None else self.__routing__)
+        try:
+            es_res = await self.call('get', **kwargs)
+            self.update_from_es(es_res)
+            return await _lazy_process_results(self)
+        except ElasticNotFoundError:
+            raise NotFoundError(f"Document with id {id} not found")
 
     @classmethod
     async def _search(cls: Type[TModel],
@@ -503,7 +600,9 @@ class ESModel(ESBaseModel):
         return await cls.call('search', query=query,
                               from_=((page - 1) * page_size) if page_size is not None else 0,
                               size=page_size, sort=sort, routing=routing,
-                              aggs=aggs, **kwargs)
+                              aggs=aggs,
+                              seq_no_primary_term=True, version=True,
+                              **kwargs)
 
     @classmethod
     async def search(cls: Type[TModel], query: ESQuery, *,
@@ -702,6 +801,11 @@ class ESModelTimestamp(ESModel):
 
         if routing is not None:
             kwargs['routing'] = routing
+
+        if self._primary_term is not None:
+            kwargs['if_primary_term'] = self._primary_term
+        if self._seq_no is not None:
+            kwargs['if_seq_no'] = self._seq_no
 
         # Set id field
         kwargs['id'] = self.__id__

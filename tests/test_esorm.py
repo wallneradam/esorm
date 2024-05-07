@@ -197,6 +197,11 @@ class TestBaseTests:
         assert doc.f_nested is not None
         assert doc.f_nested.f_str == "nested_test"
 
+        # Check private fields
+        assert doc._version == 1
+        assert doc._primary_term == 1
+        assert doc._seq_no == 0
+
     async def test_crud_update(self, es, esorm, model_nested):
         """
         Test update
@@ -218,6 +223,48 @@ class TestBaseTests:
         assert doc.f_nested.modified_at > modified_at
         # Test if created_at is not updated
         assert doc.f_nested.created_at == created_at
+
+        # Check private fields
+        assert doc._version == 2
+        assert doc._primary_term == 1
+        assert doc._seq_no == 5  # It is 5 because other documents have been created
+
+    async def test_race_condition(self, es, esorm, model_nested):
+        """
+        Test race condition
+        Race conditions should raise a ConflictError
+        """
+        from elasticsearch import ConflictError
+
+        ### Test update ###
+
+        doc_id = self.__class__.doc_id
+        # Get 2 instances of the same document
+        doc1 = await model_nested.get(doc_id)
+        doc1.f_float = 1.0
+        doc2 = await model_nested.get(doc_id)
+        doc1.f_float = 2.0
+
+        # The 2nd save should not work
+        with pytest.raises(ConflictError):
+            await doc1.save()
+            await doc2.save()
+
+        ### Test delete ###
+
+        # Get 2 instances of the same document
+        doc1 = await model_nested.get(doc_id)
+        doc1.f_float = 3.0
+        doc2 = await model_nested.get(doc_id)
+
+        # Update and delete at the same time
+        with pytest.raises(ConflictError):
+            await doc1.save(wait_for=True)
+            await doc2.delete()
+
+        doc = await model_nested.get(doc_id)
+        assert doc is not None
+        assert doc.f_float == 3.0
 
     # noinspection PyBroadException
     async def test_crud_delete(self, es, esorm, model_nested):
@@ -255,6 +302,34 @@ class TestBaseTests:
                 assert doc is not None
                 await bulk.delete(doc)
 
+    async def test_bulk_race_condition_and_reload(self, es, esorm, model_nested, model_timestamp):
+        """
+        Test bulk operations with conflict
+        """
+        doc = model_nested(f_nested=model_timestamp(f_str=f"nested_test1"), f_float=10.0)
+        await doc.save()
+
+        with pytest.raises(esorm.error.BulkError):
+            async with esorm.ESBulk(wait_for=True) as bulk:
+                doc1 = await model_nested.search_one_by_fields({'f_nested.f_str': f"nested_test1"})
+                assert doc1._version == 1
+                doc2 = await model_nested.search_one_by_fields({'f_nested.f_str': f"nested_test1"})
+                assert doc2._version == 1
+                assert doc1 is not None
+                assert doc2 is not None
+                doc1.f_float = 11.0
+                doc1.f_nested.f_str = "nested_test1_updated1"
+                await bulk.save(doc1)
+                # This should not work, because this is a race condition
+                doc2.f_float = 11.1
+                doc1.f_nested.f_str = "nested_test1_updated1"
+                await bulk.save(doc2)
+
+        # We test reloading here, it should now update the _primary_term and _seq_no
+        await doc.reload()
+        # So the deletion of document should be ok
+        await doc.delete()
+
     async def test_search(self, es, esorm, model_nested):
         """
         Test search
@@ -275,6 +350,11 @@ class TestBaseTests:
         docs = await model_nested.search(query)
         assert len(docs) == 1
         assert docs[0].f_nested.f_str == 'nested_test2'
+
+        # Should include private fields
+        assert docs[0]._version == 1
+        assert docs[0]._primary_term == 1
+        assert docs[0]._seq_no > 0
 
         # Search all started with nested_test
         query: 'ESQuery' = {

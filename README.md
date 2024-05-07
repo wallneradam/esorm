@@ -1,4 +1,3 @@
-<!--suppress HtmlDeprecatedAttribute -->
 <img src="https://raw.githubusercontent.com/wallneradam/esorm/main/docs/_static/img/esorm.svg" width="110" height="110" align="left" style="margin-right: 1em;" alt="Logo"/>
 
 # ESORM - Python ElasticSearch ORM based on Pydantic
@@ -26,6 +25,7 @@ but not as advanced (yet).</small>
         - [Client](#client)
     - [Create index templates](#create-index-templates)
     - [Create indices and mappings](#create-indices-and-mappings)
+    - [Model instances](#model-instances)
     - [CRUD: Create](#crud-create)
     - [CRUD: Read](#crud-read)
     - [CRUD: Update](#crud-update)
@@ -37,6 +37,7 @@ but not as advanced (yet).</small>
     - [Aggregations](#aggregations)
     - [Pagination and sorting](#pagination-and-sorting)
 - [🔬 Advanced usage](docs/advanced.md#advanced-usage) 
+    - [Optimistic concurrency control](docs/advanced.md#optimistic-concurrency-control)
     - [Lazy properties](docs/advanced.md#lazy-properties)
     - [Shard routing](docs/advanced.md#shard-routing)
     - [Watchers](docs/advanced.md#watchers)
@@ -62,6 +63,7 @@ pip install pyesorm
 - Full async support (no sync version at all)
 - Mapping to and from ElasticSearch types
 - Support for nested documents
+- Automatic optimistic concurrency control
 - Custom id field
 - Context for bulk operations
 - Supported IDE autocompletion and type checking (PyCharm tested)
@@ -443,6 +445,20 @@ indices
 by new fields, but cannot modify or delete fields! For that you need to reindex your ES database. It is an ElasticSearch
 limitation.
 
+<a id="model-instances"></a>
+### Model instances
+
+When you get a model instance from elasticsearch by `search` or `get` methods, you will get the following private
+attributes filled automatically:
+
+| Attribute       | Description                         |
+|-----------------|-------------------------------------|
+| `_id`           | The ES id of the document           |
+| `_routing`      | The routing value of the document   |
+| `_version`      | Version of the document             |
+| `_primary_term` | The primary term of the document    |
+| `_seq_no`       | The sequence number of the document |
+
 <a id="crud-create"></a>
 ### CRUD: Create
 
@@ -484,6 +500,9 @@ async def get_user(user_id: str):
 
 <a id="crud-update"></a>
 ### CRUD: Update
+
+On update race conditions are checked automatically (with the help of _primary_term and _seq_no fields).
+This way an optimistic locking mechanism is implemented.
 
 ```python
 from esorm import ESModel
@@ -715,6 +734,9 @@ and add pagination and sorting functionality to them.
 
 #### Pagination
 
+You can add a callback parameter to the `Pagination` class which will be invoked after the search with
+the total number of documents found.
+
 ```python
 from esorm.model import ESModel, Pagination
 
@@ -726,6 +748,11 @@ class User(ESModel):
 
 
 def get_users(page = 1, page_size = 10):
+
+    def pagination_callback(total: int):
+        # You may set a header value or something else here
+        print(f'Total users: {total}')
+
     # 1st create the decorator itself
     pagination = Pagination(page=page, page_size=page_size)
     

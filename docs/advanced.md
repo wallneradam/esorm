@@ -1,6 +1,90 @@
 <a id="advanced-usage"></a>
 # 🔬 Advanced usage
 
+
+<a id="optimistic-concurrency-control"></a>
+## Optimistic concurrency control
+
+ESORM uses optimistic concurrency control automatically, to prevent race conditions and data losses 
+when multiple updates are made to the same document at the same time. 
+
+When you save a document, ESORM checks if the document has been changed since it was loaded and 
+raises an exception if it has. In the background it uses the `_seq_no` and `_primary_term` fields
+for checking. More information in [ES documentation](https://www.elastic.co/guide/en/elasticsearch/reference/current/optimistic-concurrency-control.html).
+
+This is how to handle race conditions:
+```python
+from esorm import ESModel
+
+
+class User(ESModel):
+    first_name: str
+    last_name: str
+
+    
+async def test_race_condition():
+    """ Update the user """
+    import asyncio
+    from elasticsearch import ConflictError
+    
+    # Load the user
+    user_load1 = await User.get(id = 1)
+    # Load again
+    user_load2 = await User.get(id = 1)
+    # Here both have the same _seq_no and _primary_term
+    
+    try:
+        # Update the 1st loaded user
+        user_load1.first_name = "John"
+        await user_load1.save()
+        # Update the 2nd loaded user
+        user_load2.first_name = "Jane"
+        await user_load2.save()   # This will raise a ConflictError         
+    except ConflictError:
+        print("Conflict error")    
+        
+    # Load the user
+    user_load1 = await User.get(id = 1)
+    # Load again
+    user_load2 = await User.get(id = 1)    
+    # Here both have the same _seq_no and _primary_term
+    
+    # Delete operation
+    try:
+        user_load1.first_name = "John"
+        await user_load1.save()
+        await user_load2.delete()  # This will raise a ConflictError
+    except ConflictError:
+        print("Conflict error")
+```
+
+This is how to use it in bulk operations:
+```python
+from esorm import ESModel, ESBulk, error
+
+
+class User(ESModel):
+    first_name: str
+    last_name: str
+
+
+async def test_bulk():
+    # Load the user
+    user_load1 = await User.get(id = 1)
+    # Load again
+    user_load2 = await User.get(id = 1)    
+    # Here both have the same _seq_no and _primary_term
+    try:
+        async with ESBulk(wait_for=True) as bulk:
+            user_load1.first_name = "John"
+            await bulk.save(user_load1)
+            user_load2.first_name = "Jane"
+            await bulk.save(user_load2)  #
+    except error.BulkError as e:
+        # You can get the failed operations from e.failed_operations
+        print("Bulk error:", e.failed_operations)
+```
+
 <a id="lazy-properties"></a>
 ## Lazy properties
 
@@ -195,6 +279,8 @@ async def users(first_name: Optional[str] = None, last_name: Optional[str] = Non
 ### FastAPI pagination
 
 You can add pagination and sort parameters as a dependency in endpoint arguments:
+The pagination dependency set the `X-Total-Hits` header in the response to the total number of hits.
+So in your frontend, you can get the total number of hits from this header.
 
 ```python 
 from typing import List
