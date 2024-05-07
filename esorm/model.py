@@ -15,7 +15,7 @@ from datetime import datetime, date, time
 from functools import wraps
 
 import elasticsearch
-from elasticsearch import NotFoundError as ElasticNotFoundError
+from elasticsearch import NotFoundError as ElasticNotFoundError, ConflictError as ElasticConflictError
 from pydantic import main as pydantic_main
 from pydantic import BaseModel, ConfigDict
 from pydantic.fields import Field, PrivateAttr
@@ -42,7 +42,8 @@ __all__ = [
     'create_index_template',
     'set_default_index_prefix',
     'set_max_lazy_property_concurrency',
-    'lazy_property'
+    'lazy_property',
+    'retry_on_confict'
 ]
 
 #
@@ -758,7 +759,7 @@ class ESModelTimestamp(ESModel):
     created_at: Optional[datetime] = Field(None, description="Creation date and time")
     modified_at: Optional[datetime] = Field(default_factory=utcnow, description="Modification date and time")
 
-    async def save(self, *, force_new=False, wait_for=False, pipeline: Optional[str] = None,
+    async def save(self, *, wait_for=False, force_new=False, pipeline: Optional[str] = None,
                    routing: Optional[str] = None) -> str:
         """
         Save document into elasticsearch.
@@ -769,53 +770,20 @@ class ESModelTimestamp(ESModel):
         If no id is provided, then document will be indexed and elasticsearch will generate a suitable id that will be
         populated on the returned model.
 
-        :param force_new: Force creation of new document, it is assumed that document does not exist in elasticsearch
         :param wait_for: Waits for all shards to sync before returning response - useful when writing
             tests. Defaults to False.
+        :param force_new: It is assumed to be a new document, so created_at will be set to current time
+                          (it is no more necessary, because created_at is set to current time if it is None.
+                          It is here for backward compatibility)
         :param pipeline: Pipeline to use for indexing
         :param routing: Shard routing value
         :return: The new document's ID
         """
-        # If we know that the document is new, we can call the original save method
-        if force_new:
+        self.modified_at = utcnow()
+        # Set created_at if not already set
+        if force_new or not self.created_at:
             self.created_at = self.modified_at
-            return await super().save(wait_for=wait_for, pipeline=pipeline, routing=routing)
-
-        # We use update method with upsert here to make created_at set only on creation
-        doc_upsert = self.to_es()
-        doc = dict(doc_upsert)
-        del doc['created_at']
-
-        # Default created_at will be the same as modified_at
-        if not doc_upsert['created_at']:
-            doc_upsert['created_at'] = doc_upsert['modified_at']
-
-        kwargs = dict(
-            doc=doc,  # It is really doc, not document as in index :-/
-            wait_for=wait_for,
-            upsert=doc_upsert
-        )
-
-        if pipeline is not None:
-            kwargs['pipeline'] = pipeline
-
-        if routing is not None:
-            kwargs['routing'] = routing
-
-        if self._primary_term is not None:
-            kwargs['if_primary_term'] = self._primary_term
-        if self._seq_no is not None:
-            kwargs['if_seq_no'] = self._seq_no
-
-        # Set id field
-        kwargs['id'] = self.__id__
-        # Remove the id field from the document
-        if self.ESConfig.id_field:
-            del doc[self.ESConfig.id_field]
-            del doc_upsert[self.ESConfig.id_field]
-
-        es_res = await self.call('update', **kwargs)
-        return es_res.get('_id')
+        return await super().save(wait_for=wait_for, pipeline=pipeline, routing=routing)
 
 
 #
@@ -910,6 +878,38 @@ def lazy_property(func: Callable[[], Awaitable[Any]]):
     setattr(wrapper, '__lazy_property__', async_wrapper)
 
     return prop
+
+
+#
+# Optimistic concurrency control
+#
+
+def retry_on_conflict(max_retries=-1):
+    """
+    Decorator for optimistic concurrency control
+
+    :param max_retries: The maximum number of retries, -1 for infinite
+    :return: The decorated function
+    """
+
+    def decorator(func: Callable):
+        @wraps(func)
+        async def wrapper(*args, **kwargs):
+            retries = 0
+            while True:
+                try:
+                    return await func(*args, **kwargs)
+                except ElasticConflictError:
+                    if max_retries == -1 or retries < max_retries:
+                        retries += 1
+                        logger.warning(f"Optimistic concurrency control conflict, retrying {retries}/{max_retries}")
+                        continue
+                    else:
+                        raise
+
+        return wrapper
+
+    return decorator
 
 
 #

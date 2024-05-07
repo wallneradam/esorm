@@ -266,6 +266,48 @@ class TestBaseTests:
         assert doc is not None
         assert doc.f_float == 3.0
 
+    async def test_retry_on_conflict(self, es, esorm, model_timestamp):
+        """
+        Test optimistic concurrency control with retry
+        """
+        import asyncio
+        from elasticsearch import ConflictError
+
+        doc = model_timestamp(f_str="occ_retry", f_int=10)
+        await doc.save()
+
+        @esorm.retry_on_conflict(3)
+        async def update_doc(doc_id):
+            _doc = await model_timestamp.get(doc_id)
+            _doc.f_int += 1
+            await _doc.save()
+
+        await asyncio.gather(
+            update_doc(doc._id),
+            update_doc(doc._id),
+            update_doc(doc._id),
+        )
+
+        await doc.reload()
+        assert doc.f_int == 13
+
+        doc = model_timestamp(f_str="occ_retry", f_int=10)
+        await doc.save()
+
+        # Test it without retry logic
+
+        async def update_without_retry(doc_id):
+            _doc = await model_timestamp.get(doc_id)
+            _doc.f_int += 1
+            await _doc.save()
+
+        with pytest.raises(ConflictError):
+            await asyncio.gather(
+                update_without_retry(doc._id),
+                update_without_retry(doc._id),
+                update_without_retry(doc._id),
+            )
+
     # noinspection PyBroadException
     async def test_crud_delete(self, es, esorm, model_nested):
         """

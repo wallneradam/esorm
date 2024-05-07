@@ -7,7 +7,8 @@ from .error import (
     InvalidModelError,
     NotFoundError,
 )
-from .model import TModel, ESBaseModel, ESModel, ESModelTimestamp, Pagination, Sort, setup_mappings, lazy_property
+from .model import (TModel, ESBaseModel, ESModel, ESModelTimestamp, Pagination, Sort, setup_mappings,
+                    lazy_property, retry_on_conflict)
 from .esorm import es, connect
 from .fields import Field
 from .bulk import ESBulk
@@ -15,7 +16,7 @@ from . import fields
 
 __all__ = [
     "TModel", "ESBaseModel", "ESModel", "ESModelTimestamp", "ESBulk",
-    'lazy_property',
+    'lazy_property', 'retry_on_conflict',
     "es",
     "NotFoundError",
     "InvalidModelError",
