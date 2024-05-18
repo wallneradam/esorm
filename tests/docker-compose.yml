@@ -8,7 +8,7 @@ networks:
 services:
   es8x:
     container_name: es8x
-    hostname: es
+    hostname: es8
     image: elasticsearch:8.12.0
     environment:
       - discovery.type=single-node
@@ -17,9 +17,6 @@ services:
       - xpack.security.enabled=false
       - ingest.geoip.downloader.enabled=false
       - "ES_JAVA_OPTS=-Xms256m -Xmx256m"
-    volumes:
-      - type: tmpfs
-        target: /usr/share/elasticsearch/data
     networks:
       - esorm
     ports:
@@ -27,7 +24,7 @@ services:
 
   es7x:
     container_name: es7x
-    hostname: es
+    hostname: es7
     image: elasticsearch:7.17.13
     environment:
       - discovery.type=single-node
@@ -36,9 +33,6 @@ services:
       - xpack.security.enabled=false
       - ingest.geoip.downloader.enabled=false
       - "ES_JAVA_OPTS=-Xms256m -Xmx256m"
-    volumes:
-      - type: tmpfs
-        target: /usr/share/elasticsearch/data
     networks:
       - esorm
     ports:

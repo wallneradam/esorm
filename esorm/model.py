@@ -26,7 +26,7 @@ from .utils import snake_case, utcnow
 from .aggs import ESAggs, ESAggsResponse
 
 from .error import InvalidResponseError, NotFoundError
-from .esorm import es
+from .esorm import es, get_es_version
 from .query import ESQuery
 from .response import ESResponse
 
@@ -54,7 +54,7 @@ __all__ = [
 _model_construction = getattr(pydantic_main, '_model_construction')
 ModelMetaclass = _model_construction.ModelMetaclass
 
-_default_index_prefix = 'esorm'
+_default_index_prefix = 'esorm_'
 
 # Map python types to ES type
 _pydantic_type_map = {
@@ -182,7 +182,7 @@ class _ESModelMeta(ModelMetaclass):
             # Set default index name if not already set
             if is_model and not getattr(model.ESConfig, 'index', None):
                 # Default index is the name of the class in snake_case
-                model.ESConfig.index = _default_index_prefix + '-' + snake_case(name)
+                model.ESConfig.index = _default_index_prefix + snake_case(name)
 
             # If there is an 'id' field, set it as id_field
             if is_model and 'id' in model.model_fields.keys():
@@ -518,7 +518,7 @@ class ESModel(ESBaseModel):
         """
         kwargs = {'id': id}
         try:
-            es_res = await cls.call('get', **kwargs)
+            es_res = await cls.call('get', routing=routing, **kwargs)
             return await _lazy_process_results(cls.from_es(es_res))
         except ElasticNotFoundError:
             raise NotFoundError(f"Document with id {id} not found")
@@ -1025,20 +1025,43 @@ async def create_index_template(name: str,
     :param name: The name of the template
     :param prefix_name: The prefix of index pattern
     :param shards: Number of shards
-    :param replicas: Nuber of replicas
+    :param replicas: Number of replicas
     :param other_settings: Other settings
     :return: The result object from ES
     """
-    return await es.indices.put_template(
-        name=name,
-        index_patterns=[f'{prefix_name}-*'],
-        settings=dict(
-            number_of_shards=shards,
-            number_of_replicas=replicas,
-            **other_settings
-        ),
-        request_timeout=90
-    )
+    es_version = await get_es_version()
+    major, minor, _ = map(int, es_version.split('.'))
+
+    if major > 7 or (major == 7 and minor >= 8):
+        # Use composable template for ES 7.8 and above
+        return await es.indices.put_index_template(
+            name=name,
+            body={
+                "index_patterns": [f'{prefix_name}*'],
+                "template": {
+                    "settings": {
+                        "number_of_shards": shards,
+                        "number_of_replicas": replicas,
+                        **other_settings
+                    }
+                }
+            },
+            request_timeout=90
+        )
+    else:
+        # Use legacy template for ES versions below 7.8
+        return await es.indices.put_template(
+            name=name,
+            body={
+                "index_patterns": [f'{prefix_name}*'],
+                "settings": {
+                    "number_of_shards": shards,
+                    "number_of_replicas": replicas,
+                    **other_settings
+                }
+            },
+            request_timeout=90
+        )
 
 
 async def setup_mappings(*_, debug=False):

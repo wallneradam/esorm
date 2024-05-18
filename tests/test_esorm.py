@@ -2,7 +2,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 
-@pytest.mark.parametrize('service', ['es7x', 'es8x'], scope='class')
+@pytest.mark.parametrize('service', ['es8x', 'es7x'], scope='class')
 class TestBaseTests:
     """
     Base tests
@@ -39,28 +39,28 @@ class TestBaseTests:
         Test model with python fields
         """
         assert model_python is not None
-        assert model_python.ESConfig.index == 'esorm-python_field_model'
+        assert model_python.ESConfig.index == 'esorm_python_field_model'
 
     async def test_create_model_with_es_fields(self, es, esorm, model_es):
         """
         Test model with ES fields
         """
         assert model_es is not None
-        assert model_es.ESConfig.index == 'esorm-es_field_model'
+        assert model_es.ESConfig.index == 'esorm_es_field_model'
 
     async def test_create_model_with_es_optional_fields(self, es, esorm, model_es_optional):
         """
         Test model with ES fields
         """
         assert model_es_optional is not None
-        assert model_es_optional.ESConfig.index == 'esorm-es_optional_field_model'
+        assert model_es_optional.ESConfig.index == 'esorm_es_optional_field_model'
 
     async def test_create_timestamp_models(self, es, esorm, model_timestamp):
         """
         Test timestamp models
         """
         assert model_timestamp is not None
-        assert model_timestamp.ESConfig.index == 'esorm-timestamp_model'
+        assert model_timestamp.ESConfig.index == 'esorm_timestamp_model'
         assert 'created_at' in model_timestamp.model_fields
         assert 'modified_at' in model_timestamp.model_fields
 
@@ -71,12 +71,19 @@ class TestBaseTests:
         assert model_config is not None
         assert model_config.ESConfig.index == 'custom_index'
 
+    async def test_model_template(self, es, esorm, model_index_template):
+        """
+        Test model config
+        """
+        assert model_index_template is not None
+        assert model_index_template.ESConfig.index == 'custom_index_template'
+
     async def test_create_model_with_id(self, es, esorm, model_with_id):
         """
         Test model with config
         """
         assert model_with_id is not None
-        assert model_with_id.ESConfig.index == 'esorm-id_model'
+        assert model_with_id.ESConfig.index == 'esorm_id_model'
         assert model_with_id.ESConfig.id_field == 'id'
 
     async def test_create_model_with_int_id(self, es, esorm, model_with_int_id):
@@ -84,7 +91,7 @@ class TestBaseTests:
         Test model with int id
         """
         assert model_with_int_id is not None
-        assert model_with_int_id.ESConfig.index == 'esorm-int_id_model'
+        assert model_with_int_id.ESConfig.index == 'esorm_int_id_model'
         assert model_with_int_id.ESConfig.id_field == 'custom_id'
 
     async def test_create_model_with_prop_id(self, es, esorm, model_with_prop_id):
@@ -92,7 +99,7 @@ class TestBaseTests:
         Test model with property id
         """
         assert model_with_prop_id is not None
-        assert model_with_prop_id.ESConfig.index == 'esorm-prop_id_model'
+        assert model_with_prop_id.ESConfig.index == 'esorm_prop_id_model'
         assert model_with_prop_id.ESConfig.id_field is None
 
     async def test_create_nested_model(self, es, esorm, model_nested):
@@ -100,14 +107,19 @@ class TestBaseTests:
         Test nested model
         """
         assert model_nested is not None
-        assert model_nested.ESConfig.index == 'esorm-nested_field_model'
+        assert model_nested.ESConfig.index == 'esorm_nested_field_model'
 
     async def test_create_mappings(self, es, esorm, model_python, model_es, model_es_optional,
                                    model_timestamp, model_config, model_with_id, model_with_int_id,
-                                   model_with_prop_id, model_nested, model_lazy_prop):
+                                   model_with_prop_id, model_nested, model_lazy_prop,
+                                   model_index_template):
         """
         Test create mappings
         """
+        # Create index template
+        await esorm.model.create_index_template('custom_index_template', prefix_name='custom_index_',
+                                                shards=5, auto_expand_replicas="1-2")
+
         await esorm.setup_mappings()
         # Check if index exists
         assert await es.indices.exists(index=model_python.ESConfig.index)
@@ -164,6 +176,14 @@ class TestBaseTests:
         assert settings[model_config.ESConfig.index]['settings']['index']['number_of_shards'] == '6'
         assert settings[model_config.ESConfig.index]['settings']['index']['number_of_replicas'] == '1'
         assert settings[model_config.ESConfig.index]['settings']['index']['refresh_interval'] == '5s'
+
+        # Check if mappings are correct for model with index template
+        mappings = await es.indices.get_mapping(index=model_index_template.ESConfig.index)
+        assert mappings[model_index_template.ESConfig.index]['mappings']['properties']['f_str']['type'] == 'keyword'
+        # Check index settings
+        settings = await es.indices.get_settings(index=model_index_template.ESConfig.index)
+        assert settings[model_index_template.ESConfig.index]['settings']['index']['number_of_shards'] == '5'
+        assert settings[model_index_template.ESConfig.index]['settings']['index']['auto_expand_replicas'] == '1-2'
 
         # Check if mappings are correct for model with id
         mappings = await es.indices.get_mapping(index=model_with_id.ESConfig.index)

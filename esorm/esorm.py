@@ -31,7 +31,7 @@ class _ESProxy:
 # Global client proxy
 es = cast(AsyncElasticsearch, _ESProxy())
 
-__all__ = ['es', 'connect']
+__all__ = ['es', 'connect', 'get_es_version']
 
 
 async def connect(hosts: Union[str, List[Union[str, Mapping[str, Union[str, int]], NodeConfig]]],
@@ -62,3 +62,13 @@ async def connect(hosts: Union[str, List[Union[str, Mapping[str, Union[str, int]
 
     except asyncio.CancelledError:
         return None
+
+
+async def get_es_version() -> str:
+    """
+    Get ElasticSearch version
+
+    :return: ElasticSearch version
+    """
+    info = await es.info()
+    return info['version']['number']

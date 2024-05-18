@@ -9,7 +9,7 @@ from .error import (
 )
 from .model import (TModel, ESBaseModel, ESModel, ESModelTimestamp, Pagination, Sort, setup_mappings,
                     lazy_property, retry_on_conflict)
-from .esorm import es, connect
+from .esorm import es, connect, get_es_version
 from .fields import Field
 from .bulk import ESBulk
 from . import fields
@@ -21,7 +21,7 @@ __all__ = [
     "NotFoundError",
     "InvalidModelError",
     "InvalidResponseError",
-    "connect",
+    "connect", "get_es_version",
     "setup_mappings",
     "Field",
     "fields",

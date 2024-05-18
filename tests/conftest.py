@@ -54,7 +54,7 @@ async def esorm():
 
 
 @pytest.fixture(scope="class")  # Test both ES 8.x and 7.x
-def docker_es(service):
+async def docker_es(service):
     compose_file = os.path.join(os.path.dirname(__file__), 'docker-compose.yml')
     res = subprocess.run(['docker', 'compose', '-f', compose_file, 'up', '-d', service], check=True)
     logger.info(f"Started service: {service}")
@@ -66,11 +66,20 @@ def docker_es(service):
 
 # noinspection PyUnresolvedReferences
 @pytest.fixture(scope="class")
-async def es(docker_es, esorm):
+async def es(docker_es, esorm, service):
     """
     ElasticSearch fixture for version 8.x
     """
     es = await esorm.connect(hosts=["http://localhost:9200"], wait=True)
+
+    es_version = await esorm.get_es_version()
+    major, _, _ = map(int, es_version.split('.'))
+    if service == 'es7x':
+        assert major == 7
+    elif service == 'es8x':
+        assert major == 8
+
+    major, minor, _ = map(int, es_version.split('.'))
     assert es is not None
     yield es
     await es.close()
@@ -82,7 +91,6 @@ def model_python(esorm):
     """
     Model to test python types
     """
-
     from datetime import datetime, date, time
 
     class PythonFieldModel(esorm.ESModel):
@@ -94,9 +102,7 @@ def model_python(esorm):
         f_date: date
         f_time: time
 
-    yield PythonFieldModel
-
-    del PythonFieldModel
+    return PythonFieldModel
 
 
 # noinspection PyUnresolvedReferences
@@ -119,9 +125,7 @@ def model_es(esorm):
         f_double: esorm.fields.double
         f_geo_point: esorm.fields.geo_point
 
-    yield ESFieldModel
-
-    del ESFieldModel
+    return ESFieldModel
 
 
 @pytest.fixture(scope="class")
@@ -143,9 +147,7 @@ def model_es_optional(esorm):
         f_double: Optional[esorm.fields.double] = None
         f_geo_point: Optional[esorm.fields.geo_point] = None
 
-    yield ESOptionalFieldModel
-
-    del ESOptionalFieldModel
+    return ESOptionalFieldModel
 
 
 # noinspection PyUnresolvedReferences
@@ -159,9 +161,7 @@ def model_timestamp(esorm):
         f_str: str
         f_int: int = 1
 
-    yield TimestampModel
-
-    del TimestampModel
+    return TimestampModel
 
 
 # noinspection PyUnresolvedReferences
@@ -192,9 +192,22 @@ def model_config(esorm):
         def __routing__(self) -> str:
             return self.custom_id + '_routing'
 
-    yield ConfigModel
+    return ConfigModel
 
-    del ConfigModel
+
+@pytest.fixture(scope="class")
+def model_index_template(esorm):
+    """
+    Model to test index template
+    """
+
+    class IndexTemplateModel(esorm.ESModel):
+        class ESConfig:
+            index = 'custom_index_template'
+
+        f_str: str
+
+    return IndexTemplateModel
 
 
 # noinspection PyUnresolvedReferences
@@ -208,9 +221,7 @@ def model_with_id(esorm):
         id: str
         f_str: str
 
-    yield IdModel
-
-    del IdModel
+    return IdModel
 
 
 # noinspection PyUnresolvedReferences
@@ -227,9 +238,7 @@ def model_with_int_id(esorm):
         custom_id: int
         f_str: str
 
-    yield IntIdModel
-
-    del IntIdModel
+    return IntIdModel
 
 
 # noinspection PyUnresolvedReferences
@@ -247,9 +256,7 @@ def model_with_prop_id(esorm):
         custom_id: int
         f_str: str
 
-    yield PropIdModel
-
-    del PropIdModel
+    return PropIdModel
 
 
 # noinspection PyUnresolvedReferences
@@ -263,9 +270,7 @@ def model_nested(esorm, model_timestamp):
         f_nested: model_timestamp
         f_float: float = 0.5
 
-    yield NestedFieldModel
-
-    del NestedFieldModel
+    return NestedFieldModel
 
 
 # noinspection PyUnresolvedReferences
@@ -286,9 +291,7 @@ def model_lazy_prop(esorm):
         async def same_f_strs(self) -> List['LazyPropModel']:
             return await self.search_by_fields({'f_str': self.f_str})
 
-    yield LazyPropModel
-
-    del LazyPropModel
+    return LazyPropModel
 
 
 # noinspection PyUnresolvedReferences
@@ -306,9 +309,7 @@ async def model_nested_binary(esorm):
 
     await esorm.setup_mappings()
 
-    yield BinaryModel, NestedBinaryModel
-    del BinaryModel
-    del NestedBinaryModel
+    return BinaryModel, NestedBinaryModel
 
 
 @pytest.fixture(scope="class")
@@ -332,6 +333,4 @@ async def model_nested_base_model(esorm):
 
     await esorm.setup_mappings()
 
-    yield NestedBaseModel, NestedBaseModelModel
-    del NestedBaseModel
-    del NestedBaseModelModel
+    return NestedBaseModel, NestedBaseModelModel
