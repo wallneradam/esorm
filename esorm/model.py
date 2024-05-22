@@ -1102,6 +1102,10 @@ async def setup_mappings(*_, debug=False):
                 'properties': properties
             }
 
+        # String literals
+        if origin is Literal:
+            return {'type': 'keyword'}
+
         # Not supported origin type
         if origin:
             raise ValueError(f'Unknown ES field type: {pydantic_type}')

@@ -133,6 +133,7 @@ class TestBaseTests:
         assert mappings[model_python.ESConfig.index]['mappings']['properties']['f_datetime']['type'] == 'date'
         assert mappings[model_python.ESConfig.index]['mappings']['properties']['f_date']['type'] == 'date'
         assert mappings[model_python.ESConfig.index]['mappings']['properties']['f_time']['type'] == 'date'
+        assert mappings[model_python.ESConfig.index]['mappings']['properties']['f_literal']['type'] == 'keyword'
         # Check if mappings are correct for ES fields
         mappings = await es.indices.get_mapping(index=model_es.ESConfig.index)
         assert mappings[model_es.ESConfig.index]['mappings']['properties']['f_keyword']['type'] == 'keyword'

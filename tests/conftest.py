@@ -91,6 +91,7 @@ def model_python(esorm):
     """
     Model to test python types
     """
+    from typing import Literal
     from datetime import datetime, date, time
 
     class PythonFieldModel(esorm.ESModel):
@@ -101,6 +102,7 @@ def model_python(esorm):
         f_datetime: datetime
         f_date: date
         f_time: time
+        f_literal: Literal['a', 'b', 'c']
 
     return PythonFieldModel
 

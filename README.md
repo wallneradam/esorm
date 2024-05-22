@@ -125,6 +125,7 @@ This is how the python types are converted to ES types:
 | `datetime.datetime` | `date`    |
 | `datetime.date`     | `date`    |
 | `datetime.time`     | `date`    |
+| `typing.Literal`    | `keyword` |
 
 <a id="esorm-field-types"></a>
 #### ESORM field types
