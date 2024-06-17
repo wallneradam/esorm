@@ -313,7 +313,7 @@ class ESModel(ESBaseModel):
         return None
 
     @classmethod
-    async def call(cls, method_name, *, wait_for=None, **kwargs) -> dict:
+    async def call(cls, method_name, *, wait_for=None, index=None, **kwargs) -> dict:
         """
         Call an elasticsearch method
 
@@ -321,12 +321,13 @@ class ESModel(ESBaseModel):
 
         :param method_name: The name of the method to call
         :param wait_for: Waits for all shards to sync before returning response
+        :param index: The index name, if not set, it will use the index from ESConfig
         :param kwargs: The arguments to pass to the method
         :return: The result dictionary from ElasticSearch
         """
         kwargs = dict(kwargs)
         method = getattr(es, method_name)
-        index = cls.ESConfig.index
+        index = index or cls.ESConfig.index
         if wait_for is not None:
             kwargs['refresh'] = "wait_for"
         if 'request_timeout' not in kwargs:
