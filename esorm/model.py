@@ -313,7 +313,7 @@ class ESModel(ESBaseModel):
         return None
 
     @classmethod
-    async def call(cls, method_name, *, wait_for=None, index=None, **kwargs) -> dict:
+    async def call(cls, method_name, *, wait_for=None, index: Optional[str] = None, **kwargs) -> dict:
         """
         Call an elasticsearch method
 
@@ -508,18 +508,19 @@ class ESModel(ESBaseModel):
 
     # noinspection PyShadowingBuiltins
     @classmethod
-    async def get(cls: Type[TModel], id: Union[str, int, float], *, routing: Optional[str] = None) -> TModel:
+    async def get(cls: Type[TModel], id: Union[str, int, float], *, routing: Optional[str] = None,
+                  index: Optional[str] = None) -> TModel:
         """
         Fetches document and returns ESModel instance populated with properties.
 
         :param id: Document id
         :param routing: Shard routing value
+        :param index: Index name, if not set, it will use the index from ESConfig3663
         :raises esorm.error.NotFoundError: Returned if document not found
         :return: ESModel object
         """
-        kwargs = {'id': id}
         try:
-            es_res = await cls.call('get', routing=routing, **kwargs)
+            es_res = await cls.call('get', routing=routing, id=id, index=index)
             return await _lazy_process_results(cls.from_es(es_res))
         except ElasticNotFoundError:
             raise NotFoundError(f"Document with id {id} not found")
@@ -570,6 +571,7 @@ class ESModel(ESBaseModel):
                       sort: Optional[Union[list, str]] = None,
                       routing: Optional[str] = None,
                       aggs: Optional[ESAggs] = None,
+                      index: Optional[str] = None,
                       **kwargs) -> ESResponse:
         """
         Raw ES search method
@@ -581,6 +583,7 @@ class ESModel(ESBaseModel):
                      be used, or no sorting
         :param routing: Shard routing value
         :param aggs: Aggregations
+        :param index: Index name, if not set, it will use the index from ESConfig
         :param kwargs: Other search API params
         :return: Raw ES response.
         """
@@ -596,6 +599,7 @@ class ESModel(ESBaseModel):
                               from_=((page - 1) * page_size) if page_size is not None else 0,
                               size=page_size, sort=sort, routing=routing,
                               aggs=aggs,
+                              index=index,
                               seq_no_primary_term=True, version=True,
                               **kwargs)
 
@@ -606,6 +610,7 @@ class ESModel(ESBaseModel):
                      sort: Optional[Union[list, str]] = None,
                      routing: Optional[str] = None,
                      res_dict: bool = False,
+                     index: Optional[str] = None,
                      **kwargs) -> Union[List[TModel], Dict[str, TModel]]:
         """
         Search Model with query dict
@@ -617,10 +622,12 @@ class ESModel(ESBaseModel):
                      be used, or no sorting
         :param routing: Shard routing value
         :param res_dict: If the result should be a dict with id as key and model as value instead of a list of models
+        :param index: Index name, if not set, it will use the index from ESConfig
         :param kwargs: Other search API params
         :return: The result list
         """
-        res = await cls._search(query, page_size=page_size, page=page, sort=sort, routing=routing, **kwargs)
+        res = await cls._search(query, page_size=page_size, page=page, sort=sort, routing=routing,
+                                index=index, **kwargs)
         try:
             if res_dict:
                 res = {hit['_id']: cls.from_es(hit) for hit in res['hits']['hits']}
@@ -631,17 +638,18 @@ class ESModel(ESBaseModel):
             return []
 
     @classmethod
-    async def search_one(cls: Type[TModel], query: ESQuery, *, routing: Optional[str] = None, **kwargs) \
-            -> Optional[TModel]:
+    async def search_one(cls: Type[TModel], query: ESQuery, *, routing: Optional[str] = None,
+                         index: Optional[str] = None, **kwargs) -> Optional[TModel]:
         """
         Search Model and return the first result
 
         :param query: ElasticSearch query dict
         :param routing: Shard routing value
+        :param index: Index name, if not set, it will use the index from ESConfig
         :param kwargs: Other search API params
         :return: The first result or None if no result
         """
-        res = await cls.search(query, page_size=1, routing=routing, **kwargs)
+        res = await cls.search(query, page_size=1, routing=routing, index=index, **kwargs)
         if len(res) > 0:
             return res[0]
         else:
@@ -675,6 +683,7 @@ class ESModel(ESBaseModel):
                                routing: Optional[str] = None,
                                aggs: Optional[ESAggs] = None,
                                res_dict: bool = False,
+                               index: Optional[str] = None,
                                **kwargs) -> List[TModel]:
         """
         Search Model by fields as key-value pairs
@@ -687,18 +696,20 @@ class ESModel(ESBaseModel):
         :param routing: Shard routing value
         :param aggs: Aggregations
         :param res_dict: If the result should be a dict with id as key and model as value instead of a list of models
+        :param index: Index name, if not set, it will use the index from ESConfig
         :param kwargs: Other search API params
         :return: The result list
         """
         query = cls.create_query_from_dict(fields)
         return await cls.search(query, page_size=page_size, page=page, sort=sort, routing=routing,
-                                aggs=aggs, res_dict=res_dict, **kwargs)
+                                aggs=aggs, res_dict=res_dict, index=index, **kwargs)
 
     @classmethod
     async def search_one_by_fields(cls: Type[TModel],
                                    fields: Dict[str, Union[str, int, float]],
                                    *, routing: Optional[str] = None,
                                    aggs: Optional[ESAggs] = None,
+                                   index: Optional[str] = None,
                                    **kwargs) -> Optional[TModel]:
         """
         Search Model by fields as key-value pairs and return the first result
@@ -706,6 +717,7 @@ class ESModel(ESBaseModel):
         :param fields: A dictionary of fields and values to search by
         :param routing: Shard routing value
         :param aggs: Aggregations
+        :param index: Index name, if not set, it will use the index from ESConfig
         :param kwargs: Other search API params
         :return: The first result or None if no result
         """
@@ -713,14 +725,15 @@ class ESModel(ESBaseModel):
         return await cls.search_one(query, routing=routing, aggs=aggs, **kwargs)
 
     @classmethod
-    async def all(cls: Type[TModel], **kwargs) -> List[TModel]:
+    async def all(cls: Type[TModel], index: Optional[str] = None, **kwargs) -> List[TModel]:
         """
         Get all documents
 
         :param kwargs: Other search API params
+        :param index: Index name, if not set, it will use the index from ESConfig
         :return: The result list
         """
-        return await cls.search({'match_all': {}}, **kwargs)
+        return await cls.search({'match_all': {}}, index=index, **kwargs)
 
     @classmethod
     async def aggregate(cls: Type[TModel],
@@ -728,6 +741,7 @@ class ESModel(ESBaseModel):
                         *,
                         query: Optional[ESQuery] = None,
                         routing: Optional[str] = None,
+                        index: Optional[str] = None,
                         **kwargs) -> ESAggsResponse:
         """
         Aggregate Model with aggregation dict
@@ -736,11 +750,12 @@ class ESModel(ESBaseModel):
         :param aggs: Aggregation dict
         :param query: ElasticSearch query dict
         :param routing: Shard routing value
+        :param index: Index name, if not set, it will use the index from ESConfig
         :param kwargs: Other search API params
         :return: The result list
         """
         try:
-            res = await cls._search(query, aggs=aggs, routing=routing, page_size=0, **kwargs)
+            res = await cls._search(query, aggs=aggs, routing=routing, page_size=0, index=index, **kwargs)
             return res['aggregations']
         except KeyError:
             return {}
