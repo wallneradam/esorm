@@ -3,6 +3,7 @@ from functools import cached_property
 
 from base64 import b64encode, b64decode
 
+# noinspection PyProtectedMember
 from pydantic.fields import Field as PField, FieldInfo
 from pydantic_core import core_schema
 from pydantic import BaseModel
@@ -99,6 +100,23 @@ class Long(int):
         return core_schema.no_info_after_validator_function(cls, handler(int))
 
 
+class UnsignedLong(int):
+    """ Unsigned Long Field """
+    __es_type__ = 'unsigned_long'
+
+    @classmethod
+    def __get_pydantic_core_schema__(cls, _, handler):
+        def validate_unsigned(value: int) -> int:
+            if value < 0:
+                raise ValueError("Value must be an unsigned long!")
+            return value
+
+        return core_schema.no_info_after_validator_function(
+            validate_unsigned,
+            handler(int)
+        )
+
+
 class HalfFloat(float):
     """ Half Float Field """
     __es_type__ = 'half_float'
@@ -159,6 +177,8 @@ int32 = Union[Integer, int]
 """ 32 bit integer type """
 long = Union[Long, int]
 """ 64 bit integer (long) type """
+unsigned_long = Union[UnsignedLong, int]
+""" Unsigned 64 bit integer type """
 
 float16 = Union[HalfFloat, float]
 """ 16 bit float type """

@@ -3,7 +3,7 @@ This module contains the ESModel classes and related functions
 """
 from typing import (TypeVar, Any, Dict, Optional, Tuple, Type, Union, get_args, get_origin, List, Callable,
                     Awaitable, Literal)
-from typing_extensions import TypedDict
+from typing_extensions import TypedDict, Annotated
 
 import asyncio
 import ast
@@ -722,7 +722,7 @@ class ESModel(ESBaseModel):
         :return: The first result or None if no result
         """
         query = cls.create_query_from_dict(fields)
-        return await cls.search_one(query, routing=routing, aggs=aggs, **kwargs)
+        return await cls.search_one(query, routing=routing, aggs=aggs, index=index, **kwargs)
 
     @classmethod
     async def all(cls: Type[TModel], index: Optional[str] = None, **kwargs) -> List[TModel]:
@@ -1089,10 +1089,14 @@ async def setup_mappings(*_, debug=False):
     def get_field_data(pydantic_type: type) -> dict:
         """ Get field data from pydantic type """
         origin = get_origin(pydantic_type)
-        # Handle Union type, which must be a type definition from esorm.fields, because other unions not allowed
-        if origin is Union:
-            args = get_args(pydantic_type)
+        args = get_args(pydantic_type)
 
+        # Handle Union type, which must be a type definition from esorm.fields, because other unions not allowed
+        if origin and (
+                origin is Union
+                or
+                getattr(origin, '__name__', None) == 'UnionType'  # UnionType is in newer Pythons, this works backwards
+        ):
             # Optional may equal to Union[..., None], we don't use Optional in ES, but its child
             if type(None) in args:
                 return get_field_data(args[0])
@@ -1105,13 +1109,11 @@ async def setup_mappings(*_, debug=False):
 
         # We don't use Optional in ES, but its child
         if origin is Optional:
-            args = get_args(pydantic_type)
             return get_field_data(args[0])
 
         # List types
         if origin is list:
             properties = {}
-            args = get_args(pydantic_type)
             create_mapping(args[0], properties)
             return {
                 'type': 'nested',
@@ -1122,9 +1124,23 @@ async def setup_mappings(*_, debug=False):
         if origin is Literal:
             return {'type': 'keyword'}
 
+        # Pydantic annotated types
+        if origin is Annotated:
+            return get_field_data(args[0])
+
+        # Origin could be a base type as well on older Python versions
+        if origin is int:
+            return {'type': 'integer'}
+        if origin is float:
+            return {'type': 'double'}
+        if origin is str:
+            return {'type': 'text'}
+        if origin is bool:
+            return {'type': 'boolean'}
+
         # Not supported origin type
         if origin:
-            raise ValueError(f'Unknown ES field type: {pydantic_type}')
+            raise ValueError(f'Unsupported ES field type: {pydantic_type}, origin: {origin}')
 
         # Nested class
         if issubclass(pydantic_type, BaseModel):

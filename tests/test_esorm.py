@@ -1,4 +1,5 @@
 from typing import TYPE_CHECKING
+import sys
 import pytest
 
 
@@ -55,6 +56,14 @@ class TestBaseTests:
         assert model_es_optional is not None
         assert model_es_optional.ESConfig.index == 'esorm_es_optional_field_model'
 
+    @pytest.mark.skipif(sys.version_info < (3, 10), reason="Requires Python 3.10 or higher")
+    async def test_create_model_with_es_optional_fields_new_syntax(self, es, esorm, model_es_optional_new_syntax):
+        """
+        Test model with ES fields with new syntax
+        """
+        assert model_es_optional_new_syntax is not None
+        assert model_es_optional_new_syntax.ESConfig.index == 'esorm_es_optional_field_new_syntax_model'
+
     async def test_create_timestamp_models(self, es, esorm, model_timestamp):
         """
         Test timestamp models
@@ -109,7 +118,8 @@ class TestBaseTests:
         assert model_nested is not None
         assert model_nested.ESConfig.index == 'esorm_nested_field_model'
 
-    async def test_create_mappings(self, es, esorm, model_python, model_es, model_es_optional,
+    async def test_create_mappings(self, es, esorm, model_python, model_es,
+                                   model_es_optional, model_es_optional_new_syntax,
                                    model_timestamp, model_config, model_with_id, model_with_int_id,
                                    model_with_prop_id, model_nested, model_lazy_prop,
                                    model_index_template):
@@ -119,8 +129,8 @@ class TestBaseTests:
         # Create index template
         await esorm.model.create_index_template('custom_index_template', prefix_name='custom_index_',
                                                 shards=5, auto_expand_replicas="1-2")
-
         await esorm.setup_mappings()
+
         # Check if index exists
         assert await es.indices.exists(index=model_python.ESConfig.index)
 
@@ -134,6 +144,7 @@ class TestBaseTests:
         assert mappings[model_python.ESConfig.index]['mappings']['properties']['f_date']['type'] == 'date'
         assert mappings[model_python.ESConfig.index]['mappings']['properties']['f_time']['type'] == 'date'
         assert mappings[model_python.ESConfig.index]['mappings']['properties']['f_literal']['type'] == 'keyword'
+
         # Check if mappings are correct for ES fields
         mappings = await es.indices.get_mapping(index=model_es.ESConfig.index)
         assert mappings[model_es.ESConfig.index]['mappings']['properties']['f_keyword']['type'] == 'keyword'
@@ -143,10 +154,12 @@ class TestBaseTests:
         assert mappings[model_es.ESConfig.index]['mappings']['properties']['f_short']['type'] == 'short'
         assert mappings[model_es.ESConfig.index]['mappings']['properties']['f_int32']['type'] == 'integer'
         assert mappings[model_es.ESConfig.index]['mappings']['properties']['f_long']['type'] == 'long'
+        assert mappings[model_es.ESConfig.index]['mappings']['properties']['f_unsigned_long']['type'] == 'unsigned_long'
         assert mappings[model_es.ESConfig.index]['mappings']['properties']['f_float16']['type'] == 'half_float'
         assert mappings[model_es.ESConfig.index]['mappings']['properties']['f_float32']['type'] == 'float'
         assert mappings[model_es.ESConfig.index]['mappings']['properties']['f_double']['type'] == 'double'
         assert mappings[model_es.ESConfig.index]['mappings']['properties']['f_geo_point']['type'] == 'geo_point'
+
         # Check if mappings are correct for ES Optional fields
         mappings = await es.indices.get_mapping(index=model_es_optional.ESConfig.index)
         assert mappings[model_es_optional.ESConfig.index]['mappings']['properties']['f_keyword']['type'] == 'keyword'
@@ -156,11 +169,42 @@ class TestBaseTests:
         assert mappings[model_es_optional.ESConfig.index]['mappings']['properties']['f_short']['type'] == 'short'
         assert mappings[model_es_optional.ESConfig.index]['mappings']['properties']['f_int32']['type'] == 'integer'
         assert mappings[model_es_optional.ESConfig.index]['mappings']['properties']['f_long']['type'] == 'long'
+        assert mappings[model_es_optional.ESConfig.index]['mappings']['properties']['f_unsigned_long'][
+                   'type'] == 'unsigned_long'
         assert mappings[model_es_optional.ESConfig.index]['mappings']['properties']['f_float16']['type'] == 'half_float'
         assert mappings[model_es_optional.ESConfig.index]['mappings']['properties']['f_float32']['type'] == 'float'
         assert mappings[model_es_optional.ESConfig.index]['mappings']['properties']['f_double']['type'] == 'double'
         assert mappings[model_es_optional.ESConfig.index]['mappings']['properties']['f_geo_point'][
                    'type'] == 'geo_point'
+
+        # Test optional new syntax
+        if sys.version_info >= (3, 10):
+            mappings = await es.indices.get_mapping(index=model_es_optional_new_syntax.ESConfig.index)
+            assert mappings[model_es_optional_new_syntax.ESConfig.index]['mappings']['properties']['f_keyword'][
+                       'type'] == 'keyword'
+            assert mappings[model_es_optional_new_syntax.ESConfig.index]['mappings']['properties']['f_text'][
+                       'type'] == 'text'
+            assert mappings[model_es_optional_new_syntax.ESConfig.index]['mappings']['properties']['f_binary'][
+                       'type'] == 'binary'
+            assert mappings[model_es_optional_new_syntax.ESConfig.index]['mappings']['properties']['f_byte'][
+                       'type'] == 'byte'
+            assert mappings[model_es_optional_new_syntax.ESConfig.index]['mappings']['properties']['f_short'][
+                       'type'] == 'short'
+            assert mappings[model_es_optional_new_syntax.ESConfig.index]['mappings']['properties']['f_int32'][
+                       'type'] == 'integer'
+            assert mappings[model_es_optional_new_syntax.ESConfig.index]['mappings']['properties']['f_long'][
+                       'type'] == 'long'
+            assert mappings[model_es_optional_new_syntax.ESConfig.index]['mappings']['properties']['f_unsigned_long'][
+                       'type'] == 'unsigned_long'
+            assert mappings[model_es_optional_new_syntax.ESConfig.index]['mappings']['properties']['f_float16'][
+                       'type'] == 'half_float'
+            assert mappings[model_es_optional_new_syntax.ESConfig.index]['mappings']['properties']['f_float32'][
+                       'type'] == 'float'
+            assert mappings[model_es_optional_new_syntax.ESConfig.index]['mappings']['properties']['f_double'][
+                       'type'] == 'double'
+            assert mappings[model_es_optional_new_syntax.ESConfig.index]['mappings']['properties']['f_geo_point'][
+                       'type'] == 'geo_point'
+
         # Check if mappings are correct for timestamp fields
         mappings = await es.indices.get_mapping(index=model_timestamp.ESConfig.index)
         assert mappings[model_timestamp.ESConfig.index]['mappings']['properties']['created_at']['type'] == 'date'

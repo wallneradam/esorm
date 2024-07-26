@@ -147,25 +147,29 @@ class User(ESModel):
 
 The supported fields are:
 
-| Field name                | ES type      |
-|---------------------------|--------------|
-| `keyword`                 | `keyword`    |
-| `text`                    | `text`       |
-| `binary`                  | `binary`     |
-| `byte`                    | `byte`       |
-| `short`                   | `short`      |
-| `integer` or `int32`      | `integer`    |
-| `long` or `int64`         | `long`       |
-| `float16` or `half_float` | `half_float` |
-| `float32`                 | `float`      |
-| `double`                  | `double`     |
-| `boolean`                 | `boolean`    |
-| `geo_point`               | `geo_point`  |
+| Field name                | ES type         |
+|---------------------------|-----------------|
+| `keyword`                 | `keyword`       |
+| `text`                    | `text`          |
+| `binary`                  | `binary`        |
+| `byte`                    | `byte`          |
+| `short`                   | `short`         |
+| `integer` or `int32`      | `integer`       |
+| `long` or `int64`         | `long`          |
+| `unsigned_long`           | `unsigned_long` |
+| `float16` or `half_float` | `half_float`    |
+| `float32`                 | `float`         |
+| `double`                  | `double`        |
+| `boolean`                 | `boolean`       |
+| `geo_point`               | `geo_point`     |
 
 The `binary` field accepts **base64** encoded strings. However, if you provide `bytes` to it, they 
 will be automatically converted to a **base64** string during serialization. When you retrieve the 
 field, it will always be a **base64** encoded string. You can easily convert it back to bytes using 
 the `bytes()` method: `binary_field.bytes()`.
+
+You can also use `Annotated` types to specify the ES type, like Pydantic `PositiveInt` and 
+`NegativeInt` and similar.
 
 <a id="nested-documents"></a>
 #### Nested documents

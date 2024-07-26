@@ -122,6 +122,7 @@ def model_es(esorm):
         f_short: esorm.fields.short
         f_int32: esorm.fields.int32
         f_long: esorm.fields.long
+        f_unsigned_long: esorm.fields.unsigned_long
         f_float16: esorm.fields.float16
         f_float32: esorm.fields.float32
         f_double: esorm.fields.double
@@ -135,6 +136,7 @@ def model_es_optional(esorm):
     """
     Model to test optional ES types
     """
+    from pydantic import PositiveInt
 
     class ESOptionalFieldModel(esorm.ESModel):
         f_keyword: Optional[esorm.fields.keyword] = None
@@ -144,12 +146,41 @@ def model_es_optional(esorm):
         f_short: Optional[esorm.fields.short] = None
         f_int32: Optional[esorm.fields.int32] = None
         f_long: Optional[esorm.fields.long] = None
+        f_unsigned_long: Optional[esorm.fields.unsigned_long] = None
         f_float16: Optional[esorm.fields.float16] = None
         f_float32: Optional[esorm.fields.float32] = None
         f_double: Optional[esorm.fields.double] = None
         f_geo_point: Optional[esorm.fields.geo_point] = None
 
+        age: Optional[PositiveInt] = None
+
     return ESOptionalFieldModel
+
+
+@pytest.fixture(scope="class")
+def model_es_optional_new_syntax(esorm):
+    """
+    Model to test optional ES types with new syntax
+    """
+
+    if sys.version_info >= (3, 10):
+        class ESOptionalFieldNewSyntaxModel(esorm.ESModel):
+            f_keyword: esorm.fields.keyword | None = None
+            f_text: esorm.fields.text | None = None
+            f_binary: esorm.fields.binary | None = esorm.Field(None, index=False)
+            f_byte: esorm.fields.byte | None = None
+            f_short: esorm.fields.short | None = None
+            f_int32: esorm.fields.int32 | None = None
+            f_long: esorm.fields.long | None = None
+            f_unsigned_long: esorm.fields.unsigned_long | None = None
+            f_float16: esorm.fields.float16 | None = None
+            f_float32: esorm.fields.float32 | None = None
+            f_double: esorm.fields.double | None = None
+            f_geo_point: esorm.fields.geo_point | None = None
+
+        return ESOptionalFieldNewSyntaxModel
+
+    return None
 
 
 # noinspection PyUnresolvedReferences
