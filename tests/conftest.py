@@ -93,6 +93,7 @@ def model_python(esorm):
     """
     from typing import Literal
     from datetime import datetime, date, time
+    from pydantic import UUID4, HttpUrl, FilePath
 
     class PythonFieldModel(esorm.ESModel):
         f_str: str
@@ -103,6 +104,11 @@ def model_python(esorm):
         f_date: date
         f_time: time
         f_literal: Literal['a', 'b', 'c']
+
+        # Pydantic types which may annotated to python types
+        f_uuid4: UUID4
+        f_file_path: FilePath
+        f_http_url: HttpUrl
 
     return PythonFieldModel
 
@@ -152,7 +158,7 @@ def model_es_optional(esorm):
         f_double: Optional[esorm.fields.double] = None
         f_geo_point: Optional[esorm.fields.geo_point] = None
 
-        age: Optional[PositiveInt] = None
+        f_positive_int: Optional[PositiveInt] = None
 
     return ESOptionalFieldModel
 
@@ -367,3 +373,24 @@ async def model_nested_base_model(esorm):
     await esorm.setup_mappings()
 
     return NestedBaseModel, NestedBaseModelModel
+
+
+@pytest.fixture(scope="class")
+async def model_base_model_parent(esorm):
+    """
+    Model to test base model as a parent class
+    """
+
+    class BaseModelParent(esorm.ESBaseModel):
+        class ESConfig:
+            id_field = 'f_str'
+
+        f_str: str
+        f_int: int
+
+    class BaseModelParentModel(BaseModelParent, esorm.ESModel):
+        f_float: float
+
+    await esorm.setup_mappings()
+
+    return BaseModelParentModel

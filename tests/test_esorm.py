@@ -1,3 +1,4 @@
+import asyncio
 from typing import TYPE_CHECKING
 import sys
 import pytest
@@ -144,6 +145,9 @@ class TestBaseTests:
         assert mappings[model_python.ESConfig.index]['mappings']['properties']['f_date']['type'] == 'date'
         assert mappings[model_python.ESConfig.index]['mappings']['properties']['f_time']['type'] == 'date'
         assert mappings[model_python.ESConfig.index]['mappings']['properties']['f_literal']['type'] == 'keyword'
+        assert mappings[model_python.ESConfig.index]['mappings']['properties']['f_uuid4']['type'] == 'keyword'
+        assert mappings[model_python.ESConfig.index]['mappings']['properties']['f_file_path']['type'] == 'keyword'
+        assert mappings[model_python.ESConfig.index]['mappings']['properties']['f_http_url']['type'] == 'keyword'
 
         # Check if mappings are correct for ES fields
         mappings = await es.indices.get_mapping(index=model_es.ESConfig.index)
@@ -176,6 +180,7 @@ class TestBaseTests:
         assert mappings[model_es_optional.ESConfig.index]['mappings']['properties']['f_double']['type'] == 'double'
         assert mappings[model_es_optional.ESConfig.index]['mappings']['properties']['f_geo_point'][
                    'type'] == 'geo_point'
+        assert mappings[model_es_optional.ESConfig.index]['mappings']['properties']['f_positive_int']['type'] == 'long'
 
         # Test optional new syntax
         if sys.version_info >= (3, 10):
@@ -338,6 +343,8 @@ class TestBaseTests:
         doc.f_nested.f_str = "nested_test_updated"
         await doc.save()
 
+        await asyncio.sleep(0.1)
+
         # Get by id
         doc = await model_nested.get(doc_id)
         assert doc is not None
@@ -351,6 +358,42 @@ class TestBaseTests:
         assert doc._version == 2
         assert doc._primary_term == 1
         assert doc._seq_no == 5  # It is 5 because other documents have been created
+
+    async def test_python_types(self, es, esorm, model_python):
+        """
+        Test pydantic types
+        """
+        from datetime import datetime, date, time
+        from uuid import uuid4, UUID
+
+        await esorm.setup_mappings()
+
+        doc = model_python(
+            f_str='test', f_int=123, f_float=0.123, f_bool=True,
+            f_datetime=datetime.now(),
+            f_date=date.today(), f_time=datetime.now().time(),
+            f_literal='a',
+            f_uuid4=uuid4(),
+            f_file_path='/bin/sh',
+            f_http_url='http://example.com'
+        )
+        doc_id = await doc.save()
+        assert doc_id is not None
+
+        # Get by id
+        doc = await model_python.get(doc_id)
+        assert doc is not None
+        assert doc.f_str == 'test'
+        assert doc.f_int == 123
+        assert doc.f_float == 0.123
+        assert doc.f_bool is True
+        assert isinstance(doc.f_datetime, datetime)
+        assert isinstance(doc.f_date, date)
+        assert isinstance(doc.f_time, time)
+        assert doc.f_literal == 'a'
+        assert isinstance(doc.f_uuid4, UUID)
+        assert str(doc.f_file_path) == '/bin/sh'
+        assert str(doc.f_http_url) == 'http://example.com/'
 
     async def test_race_condition(self, es, esorm, model_nested):
         """
@@ -853,3 +896,19 @@ class TestBaseTests:
         assert doc.f_nested.f_str == 'test'
         assert doc.f_nested.f_int == 1
         assert doc.f_nested.lazy_prop == 'lazy(f_str=test, f_int=1)'
+
+    async def test_base_model_parent(self, es, esorm, model_base_model_parent):
+        """
+        Test base model parent
+        """
+        doc = model_base_model_parent(f_str='test', f_int=123, f_float=0.123)
+        doc_id = await doc.save()
+        assert doc_id is not None
+
+        doc = await model_base_model_parent.get(doc_id)
+        assert doc is not None
+        assert doc.f_str == 'test'
+        assert doc.f_int == 123
+        assert doc.f_float == 0.123
+
+        assert doc._id == 'test'

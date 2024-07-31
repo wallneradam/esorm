@@ -116,16 +116,16 @@ class User(ESModel):
 
 This is how the python types are converted to ES types:
 
-| Python type         | ES type   |
-|---------------------|-----------|
-| `str`               | `text`    |
-| `int`               | `long`    |
-| `float`             | `double`  |
-| `bool`              | `boolean` |
-| `datetime.datetime` | `date`    |
-| `datetime.date`     | `date`    |
-| `datetime.time`     | `date`    |
-| `typing.Literal`    | `keyword` |
+| Python type         | ES type   | Comment                     |
+|---------------------|-----------|-----------------------------|
+| `str`               | `text`    |                             |
+| `int`               | `long`    |                             |
+| `float`             | `double`  |                             |
+| `bool`              | `boolean` |                             |
+| `datetime.datetime` | `date`    |                             |
+| `datetime.date`     | `date`    |                             |
+| `datetime.time`     | `date`    | Stored as 1970-01-01 + time |
+| `typing.Literal`    | `keyword` |                             |
 
 <a id="esorm-field-types"></a>
 #### ESORM field types
@@ -147,21 +147,21 @@ class User(ESModel):
 
 The supported fields are:
 
-| Field name                | ES type         |
-|---------------------------|-----------------|
-| `keyword`                 | `keyword`       |
-| `text`                    | `text`          |
-| `binary`                  | `binary`        |
-| `byte`                    | `byte`          |
-| `short`                   | `short`         |
-| `integer` or `int32`      | `integer`       |
-| `long` or `int64`         | `long`          |
-| `unsigned_long`           | `unsigned_long` |
-| `float16` or `half_float` | `half_float`    |
-| `float32`                 | `float`         |
-| `double`                  | `double`        |
-| `boolean`                 | `boolean`       |
-| `geo_point`               | `geo_point`     |
+| Field name                  | ES type         |
+|-----------------------------|-----------------|
+| `keyword`                   | `keyword`       |
+| `text`                      | `text`          |
+| `binary`                    | `binary`        |
+| `byte`                      | `byte`          |
+| `short`                     | `short`         |
+| `integer` or `int32`        | `integer`       |
+| `long` or `int64`           | `long`          |
+| `unsigned_long` or `uint64` | `unsigned_long` |
+| `float16` or `half_float`   | `half_float`    |
+| `float32`                   | `float`         |
+| `double`                    | `double`        |
+| `boolean`                   | `boolean`       |
+| `geo_point`                 | `geo_point`     |
 
 The `binary` field accepts **base64** encoded strings. However, if you provide `bytes` to it, they 
 will be automatically converted to a **base64** string during serialization. When you retrieve the 
@@ -195,8 +195,43 @@ class Post(ESModel):
 <a id="esbasemodel"></a>
 #### ESBaseModel
 
-`ESBaseModel` is the base of `ESModel`, also it is useful to use it for nested documents, 
-because by using it will not be included in the ElasticSearch index.
+`ESBaseModel` is the base of `ESModel`.
+
+##### Use it for abstract models
+
+```python
+from esorm import ESModel, ESBaseModel
+from esorm.fields import keyword, text, byte
+
+
+# This way `User` model won't be in the index
+class BaseUser(ESBaseModel):  # <---------------
+    # This config will be inherited by User
+    class ESConfig:
+        id_field = 'email'    
+    
+    name: text
+    email: keyword
+    
+
+# This will be in the index because it is a subclass of ESModel
+class UserExtended(BaseUser, ESModel):
+    age: byte = 18
+
+
+async def create_user():
+    user = UserExtended(
+        name='John Doe',
+        email="john@example.com",
+        age=25
+    )
+    await user.save()
+```
+
+##### Use it for nested documents 
+
+It is useful to use it for nested documents, because by using it will not be included in the 
+ElasticSearch index.
 
 ```python
 from esorm import ESModel, ESBaseModel

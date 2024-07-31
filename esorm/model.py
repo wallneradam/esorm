@@ -21,6 +21,10 @@ from pydantic import BaseModel, ConfigDict
 from pydantic.fields import Field, PrivateAttr
 # noinspection PyProtectedMember
 from pydantic.fields import FieldInfo  # It is just not in __all__ of pydantic.fields, but we strongly need it
+from pydantic_core import Url
+
+from uuid import UUID
+from pathlib import Path
 
 from .utils import snake_case, utcnow
 from .aggs import ESAggs, ESAggsResponse
@@ -64,7 +68,12 @@ _pydantic_type_map = {
     bool: 'boolean',
     datetime: 'date',
     date: 'date',
-    time: 'date',
+    time: 'date',  # Time is stored as datetime, 1970-01-01 + time
+    # Other python types
+    UUID: 'keyword',
+    Path: 'keyword',
+    # Pydantic core types
+    Url: 'keyword',
 }
 
 # TModel type variable
@@ -313,7 +322,7 @@ class ESModel(ESBaseModel):
         return None
 
     @classmethod
-    async def call(cls, method_name, *, wait_for=None, index: Optional[str] = None, **kwargs) -> dict:
+    async def call(cls: Type[TModel], method_name, *, wait_for=None, index: Optional[str] = None, **kwargs) -> dict:
         """
         Call an elasticsearch method
 
@@ -335,6 +344,48 @@ class ESModel(ESBaseModel):
 
         return await method(index=index, **kwargs)
 
+    @classmethod
+    def _recursive_convert_to_es(cls: Type[TModel], data: dict, _level=0):
+        """ Recursively modify data for Elasticsearch """
+        for k, v in data.items():
+            # Encode datetime fields
+            if isinstance(v, datetime):
+                # Update ESTimestamp fields
+                if _level != 0 and k == 'modified_at':
+                    v = utcnow()
+                elif _level != 0 and k == 'created_at' and v is None:
+                    v = utcnow()
+                data[k] = v.replace(tzinfo=None).isoformat() + 'Z'
+
+            # Convert date fields
+            elif isinstance(v, date):
+                data[k] = v.isoformat()
+
+            # Convert time fields
+            elif isinstance(v, time):
+                data[k] = datetime.combine(datetime(1970, 1, 1), v).isoformat()
+
+            # Convert UUID, Path, Url fields
+            elif isinstance(v, UUID) or isinstance(v, Path) or isinstance(v, Url):
+                data[k] = str(v)
+
+            # Convert subclasses
+            elif isinstance(v, dict):
+                cls._recursive_convert_to_es(v, _level + 1)
+
+    @classmethod
+    def _recursive_exclude(cls: Type[TModel], m: BaseModel) -> Dict[str, Union[bool, dict]]:
+        """ Recursively exclude computed fields """
+        _exclude: Dict[str, Union[bool, dict]] = {k: True for k in m.model_computed_fields.keys()}
+        for k, v in m:
+            if k in _exclude:
+                continue
+            if isinstance(v, BaseModel):
+                res = cls._recursive_exclude(v)
+                if res:
+                    _exclude[k] = res
+        return _exclude
+
     def to_es(self, **kwargs) -> dict:
         """
         Generates a dictionary equivalent to what ElasticSearch returns in the '_source' property of a response.
@@ -347,42 +398,31 @@ class ESModel(ESBaseModel):
         """
         kwargs = dict(kwargs)
 
-        def recursive_exclude(m) -> Dict[str, Union[bool, dict]]:
-            """ Recursively exclude computed fields """
-            _exclude: Dict[str, Union[bool, dict]] = {k: True for k in m.model_computed_fields.keys()}
-            for k, v in m:
-                if k in _exclude:
-                    continue
-                if isinstance(v, BaseModel):
-                    res = recursive_exclude(v)
-                    if res:
-                        _exclude[k] = res
-            return _exclude
-
         # Update exclude field with computed fields
         exclude = kwargs.get('exclude', {})
-        exclude.update(recursive_exclude(self))
+        exclude.update(self._recursive_exclude(self))
         kwargs['exclude'] = exclude
         # Dump model to dict
         d = self.model_dump(**kwargs)
 
-        def recursive_convert(_d: dict):
-            """ Recursively modify data for Elasticsearch """
-            for k, v in _d.items():
-                # Encode datetime fields
-                if isinstance(v, datetime):
-                    # Update ESTimestamp fields
-                    if k == 'modified_at' and d != _d:
-                        v = utcnow()
-                    elif k == 'created_at' and v is None and d != _d:
-                        v = utcnow()
-                    _d[k] = v.replace(tzinfo=None).isoformat() + 'Z'
-                # Convert subclasses
-                elif isinstance(v, dict):
-                    recursive_convert(v)
-
-        recursive_convert(d)
+        self._recursive_convert_to_es(d)
         return d
+
+    @classmethod
+    def _recursive_convert_from_es(cls: Type[TModel], data: dict):
+        """ Recursively convert data from Elasticsearch """
+        for k, v in data.items():
+            try:
+                field = cls.model_fields[k]
+                # Convert time fields
+                if field.annotation == time and isinstance(v, str):
+                    data[k] = datetime.fromisoformat(v).time()
+
+                # Dict fields
+                elif isinstance(v, dict):
+                    cls._recursive_convert_from_es(v)
+            except KeyError:
+                pass
 
     def update_from_es(self, data: Dict[str, Any]):
         """
@@ -402,8 +442,9 @@ class ESModel(ESBaseModel):
 
         for k, v in source.items():
             if k in self.__fields_set__:
-                print(k, '=', v)
                 setattr(self, k, v)
+
+        self._recursive_convert_from_es(source)
 
         # Set routing field
         _routing = data.get("_routing", None)
@@ -440,6 +481,9 @@ class ESModel(ESBaseModel):
         # Add id field to document
         if source is not None and cls.ESConfig.id_field:
             source[cls.ESConfig.id_field] = _id
+
+        # Concert to Pydantic model
+        cls._recursive_convert_from_es(source)
         obj = cls(**source)
 
         # Set id field
@@ -1128,15 +1172,9 @@ async def setup_mappings(*_, debug=False):
         if origin is Annotated:
             return get_field_data(args[0])
 
-        # Origin could be a base type as well on older Python versions
-        if origin is int:
-            return {'type': 'integer'}
-        if origin is float:
-            return {'type': 'double'}
-        if origin is str:
-            return {'type': 'text'}
-        if origin is bool:
-            return {'type': 'boolean'}
+        # Origin could be a base type as well in older Python versions
+        if origin in [int, float, str, bool]:
+            return {'type': _pydantic_type_map[origin]}
 
         # Not supported origin type
         if origin:

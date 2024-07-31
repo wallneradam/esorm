@@ -9,8 +9,11 @@ from pydantic_core import core_schema
 from pydantic import BaseModel
 
 __all__ = (
-    'Keyword', 'Text', 'Binary', 'Byte', 'Short', 'Integer', 'Long', 'HalfFloat', 'Float', 'Double', 'LatLon',
-    'keyword', 'text', 'binary', 'byte', 'short', 'int32', 'long', 'float16', 'float32', 'double', 'geo_point',
+    'Keyword', 'Text', 'Binary', 'Byte', 'Short', 'Integer', 'Long', 'UnsignedLong', 'HalfFloat', 'Float', 'Double',
+    'LatLon',
+    'keyword', 'text', 'binary', 'byte', 'short', 'int32', 'long', 'unsigned_long', 'uint64', 'float16', 'float32',
+    'double',
+    'geo_point',
     'integer', 'half_float', 'int64', 'boolean',
     'Field', 'NumericField', 'TextField'
 )
@@ -190,6 +193,7 @@ double = Union[Double, float]
 # Aliases
 integer = int32
 int64 = long
+uint64 = unsigned_long
 boolean = bool
 half_float = float16
 
