@@ -1179,6 +1179,15 @@ async def setup_mappings(*_, debug=False):
             # ESORM type
             if hasattr(arg, '__es_type__'):
                 return {'type': arg.__es_type__}
+            else:
+                sub_origin = get_origin(arg)
+                if sub_origin is Union:
+                    try:
+                        sub_arg = get_args(arg)[0]
+                        return {'type': sub_arg.__es_type__}
+                    except IndexError:
+                        pass
+                    raise ValueError(f'Unsupported ES field type: {arg}')
 
             # Nested class
             properties = {}

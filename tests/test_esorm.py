@@ -955,16 +955,21 @@ class TestBaseTests:
         class PrimitiveListModel(esorm.ESModel):
             f_int_list: List[int] = []
             f_str_list: List[str] = []
+            f_unsigned_long: List[esorm.fields.unsigned_long] = []
 
         await esorm.setup_mappings()
 
-        doc = PrimitiveListModel(f_int_list=[1, 2, 3], f_str_list=['a', 'b', 'c'])
+        doc = PrimitiveListModel(
+            f_int_list=[1, 2, 3], f_str_list=['a', 'b', 'c'],
+            f_unsigned_long=[4, 5, 6]
+        )
         doc_id = await doc.save()
         assert doc_id is not None
 
         doc = await PrimitiveListModel.get(doc_id)
         assert doc.f_int_list == [1, 2, 3]
         assert doc.f_str_list == ['a', 'b', 'c']
+        assert doc.f_unsigned_long == [4, 5, 6]
 
     @pytest.mark.skipif(sys.version_info < (3, 10), reason="Requires Python 3.10 or higher")
     async def test_primitive_list_new_syntax(self, es, esorm):
@@ -975,6 +980,7 @@ class TestBaseTests:
         class PrimitiveListModel(esorm.ESModel):
             f_int_list: list[int] = []
             f_str_list: list[str] = []
+            f_unsigned_long: list[esorm.fields.unsigned_long] = []
 
         await esorm.setup_mappings()
 
