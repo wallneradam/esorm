@@ -191,6 +191,21 @@ class Post(ESModel):
     writer: User  # User is a nested document
 ```
 
+<a id="list-primitive-fields"></a>
+#### List primitive fields
+
+You can use list of primitive fields:
+
+```python    
+from typing import List
+from esorm import ESModel
+
+
+class User(ESModel):
+    emails: List[str]
+    favorite_ids: List[int] 
+    ...   
+```
 
 <a id="esbasemodel"></a>
 #### ESBaseModel

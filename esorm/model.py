@@ -553,18 +553,20 @@ class ESModel(ESBaseModel):
     # noinspection PyShadowingBuiltins
     @classmethod
     async def get(cls: Type[TModel], id: Union[str, int, float], *, routing: Optional[str] = None,
-                  index: Optional[str] = None) -> TModel:
+                  index: Optional[str] = None, _source: Optional[Union[str, List[str]]] = None, **kwargs) -> TModel:
         """
         Fetches document and returns ESModel instance populated with properties.
 
         :param id: Document id
         :param routing: Shard routing value
         :param index: Index name, if not set, it will use the index from ESConfig3663
+        :param _source: Fields to return, if not set, it will return all fields
+        :param kwargs: Other search API params
         :raises esorm.error.NotFoundError: Returned if document not found
         :return: ESModel object
         """
         try:
-            es_res = await cls.call('get', routing=routing, id=id, index=index)
+            es_res = await cls.call('get', routing=routing, id=id, index=index, _source=_source, **kwargs)
             return await _lazy_process_results(cls.from_es(es_res))
         except ElasticNotFoundError:
             raise NotFoundError(f"Document with id {id} not found")
@@ -655,6 +657,7 @@ class ESModel(ESBaseModel):
                      routing: Optional[str] = None,
                      res_dict: bool = False,
                      index: Optional[str] = None,
+                     _source: Optional[Union[str, List[str]]] = None,
                      **kwargs) -> Union[List[TModel], Dict[str, TModel]]:
         """
         Search Model with query dict
@@ -667,11 +670,12 @@ class ESModel(ESBaseModel):
         :param routing: Shard routing value
         :param res_dict: If the result should be a dict with id as key and model as value instead of a list of models
         :param index: Index name, if not set, it will use the index from ESConfig
+        :param _source: Fields to return, if not set, it will return all fields
         :param kwargs: Other search API params
         :return: The result list
         """
         res = await cls._search(query, page_size=page_size, page=page, sort=sort, routing=routing,
-                                index=index, **kwargs)
+                                index=index, _source=_source, **kwargs)
         try:
             if res_dict:
                 res = {hit['_id']: cls.from_es(hit) for hit in res['hits']['hits']}
@@ -683,17 +687,20 @@ class ESModel(ESBaseModel):
 
     @classmethod
     async def search_one(cls: Type[TModel], query: ESQuery, *, routing: Optional[str] = None,
-                         index: Optional[str] = None, **kwargs) -> Optional[TModel]:
+                         index: Optional[str] = None,
+                         _source: Optional[Union[str, List[str]]] = None,
+                         **kwargs) -> Optional[TModel]:
         """
         Search Model and return the first result
 
         :param query: ElasticSearch query dict
         :param routing: Shard routing value
         :param index: Index name, if not set, it will use the index from ESConfig
+        :param _source: Fields to return, if not set, it will return all fields
         :param kwargs: Other search API params
         :return: The first result or None if no result
         """
-        res = await cls.search(query, page_size=1, routing=routing, index=index, **kwargs)
+        res = await cls.search(query, page_size=1, routing=routing, _source=_source, index=index, **kwargs)
         if len(res) > 0:
             return res[0]
         else:
@@ -728,6 +735,7 @@ class ESModel(ESBaseModel):
                                aggs: Optional[ESAggs] = None,
                                res_dict: bool = False,
                                index: Optional[str] = None,
+                               _source: Optional[Union[str, List[str]]] = None,
                                **kwargs) -> List[TModel]:
         """
         Search Model by fields as key-value pairs
@@ -741,12 +749,13 @@ class ESModel(ESBaseModel):
         :param aggs: Aggregations
         :param res_dict: If the result should be a dict with id as key and model as value instead of a list of models
         :param index: Index name, if not set, it will use the index from ESConfig
+        :param _source: Fields to return, if not set, it will return all fields
         :param kwargs: Other search API params
         :return: The result list
         """
         query = cls.create_query_from_dict(fields)
         return await cls.search(query, page_size=page_size, page=page, sort=sort, routing=routing,
-                                aggs=aggs, res_dict=res_dict, index=index, **kwargs)
+                                aggs=aggs, res_dict=res_dict, index=index, _source=_source, **kwargs)
 
     @classmethod
     async def search_one_by_fields(cls: Type[TModel],
@@ -754,6 +763,7 @@ class ESModel(ESBaseModel):
                                    *, routing: Optional[str] = None,
                                    aggs: Optional[ESAggs] = None,
                                    index: Optional[str] = None,
+                                   _source: Optional[Union[str, List[str]]] = None,
                                    **kwargs) -> Optional[TModel]:
         """
         Search Model by fields as key-value pairs and return the first result
@@ -762,11 +772,12 @@ class ESModel(ESBaseModel):
         :param routing: Shard routing value
         :param aggs: Aggregations
         :param index: Index name, if not set, it will use the index from ESConfig
+        :param _source: Fields to return, if not set, it will return all fields
         :param kwargs: Other search API params
         :return: The first result or None if no result
         """
         query = cls.create_query_from_dict(fields)
-        return await cls.search_one(query, routing=routing, aggs=aggs, index=index, **kwargs)
+        return await cls.search_one(query, routing=routing, aggs=aggs, index=index, _source=_source, **kwargs)
 
     @classmethod
     async def all(cls: Type[TModel], index: Optional[str] = None, **kwargs) -> List[TModel]:
@@ -1157,8 +1168,21 @@ async def setup_mappings(*_, debug=False):
 
         # List types
         if origin is list:
+            arg = args[0]
+
+            # Python type
+            try:
+                return {'type': _pydantic_type_map[arg]}
+            except KeyError:
+                pass
+
+            # ESORM type
+            if hasattr(arg, '__es_type__'):
+                return {'type': arg.__es_type__}
+
+            # Nested class
             properties = {}
-            create_mapping(args[0], properties)
+            create_mapping(arg, properties)
             return {
                 'type': 'nested',
                 'properties': properties

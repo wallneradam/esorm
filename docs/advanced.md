@@ -207,6 +207,46 @@ async def get_user_by_region(region: str = 'europe') -> List[User]:
     return await User.search_by_fields(region=region, routing=f"{region}_routing")  
 ```
 
+<a id="retreive-selected-fields-only"></a>
+## Retreive Selected Fields Only
+
+When you query documents from Elasticsearch, you can specify which fields you want to get back.
+For this you can use teh `_source` argument in `search` methods and `get` method.
+This will only work if you specify default values for all the fields you may skip:
+
+```python
+import esorm
+
+class Model(esorm.ESModel):
+    f_int: int = 0
+    f_str: str = 'a'
+
+
+async def test_source():    
+    doc = Model(f_int=1, f_str='b')
+    doc_id = await doc.save()
+
+    doc = await Model.get(doc_id)
+    assert doc.f_str == 'b'
+    assert doc.f_int == 1
+
+    doc = await Model.search_one_by_fields(dict(_id=doc_id), _source=['f_str'])
+    assert doc.f_str == 'b'
+    assert doc.f_int == 0
+
+    doc = await Model.search_one_by_fields(dict(_id=doc_id), _source=['f_int'])
+    assert doc.f_str == 'a'
+    assert doc.f_int == 1
+
+    doc = await Model.get(doc_id, _source=['f_str'])
+    assert doc.f_str == 'b'
+    assert doc.f_int == 0
+
+    doc = await Model.get(doc_id, _source=['f_int'])
+    assert doc.f_str == 'a'
+    assert doc.f_int == 1
+```
+
 <a id="watchers"></a>
 ## Watchers
 
@@ -218,9 +258,10 @@ a combination of the two.
 More info: https://www.elastic.co/guide/en/elasticsearch/reference/current/how-watcher-works.html
 
 <small>
-The watcher feature is not free in Elasticsearch, you need to have a license for it. Or if your are 
+The watcher feature is not free in Elasticsearch, you need to have a license for it. Or if you are 
 an experienced developer, you can compile Elasticsearch from source and disable the license check.
 You can do it for your own use, because the source code is available, though it is not free.
+(hint: you need to recompile the `x-pack` plugin only, and you can replace it in the compiled version)
 </small>
 
 The following example shows how to create a watcher which deletes all draft documents older than 1 hour:

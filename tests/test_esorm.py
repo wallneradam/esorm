@@ -366,8 +366,6 @@ class TestBaseTests:
         from datetime import datetime, date, time
         from uuid import uuid4, UUID
 
-        await esorm.setup_mappings()
-
         doc = model_python(
             f_str='test', f_int=123, f_float=0.123, f_bool=True,
             f_datetime=datetime.now(),
@@ -912,3 +910,78 @@ class TestBaseTests:
         assert doc.f_float == 0.123
 
         assert doc._id == 'test'
+
+    async def test_source(self, es, esorm):
+        """
+        Test _source argument
+        """
+
+        class TestSourceModel(esorm.ESModel):
+            f_int: int = 0
+            f_str: str = 'a'
+
+        await esorm.setup_mappings()
+
+        doc = TestSourceModel(f_int=1, f_str='b')
+        doc_id = await doc.save()
+        assert doc_id is not None
+
+        doc = await TestSourceModel.get(doc_id)
+        assert doc.f_str == 'b'
+        assert doc.f_int == 1
+
+        doc = await TestSourceModel.search_one_by_fields(dict(_id=doc_id), _source=['f_str'])
+        assert doc.f_str == 'b'
+        assert doc.f_int == 0
+
+        doc = await TestSourceModel.search_one_by_fields(dict(_id=doc_id), _source=['f_int'])
+        assert doc.f_str == 'a'
+        assert doc.f_int == 1
+
+        doc = await TestSourceModel.get(doc_id, _source=['f_str'])
+        assert doc.f_str == 'b'
+        assert doc.f_int == 0
+
+        doc = await TestSourceModel.get(doc_id, _source=['f_int'])
+        assert doc.f_str == 'a'
+        assert doc.f_int == 1
+
+    async def test_primitive_list(self, es, esorm):
+        """
+        Test primitive list
+        """
+        from typing import List
+
+        class PrimitiveListModel(esorm.ESModel):
+            f_int_list: List[int] = []
+            f_str_list: List[str] = []
+
+        await esorm.setup_mappings()
+
+        doc = PrimitiveListModel(f_int_list=[1, 2, 3], f_str_list=['a', 'b', 'c'])
+        doc_id = await doc.save()
+        assert doc_id is not None
+
+        doc = await PrimitiveListModel.get(doc_id)
+        assert doc.f_int_list == [1, 2, 3]
+        assert doc.f_str_list == ['a', 'b', 'c']
+
+    @pytest.mark.skipif(sys.version_info < (3, 10), reason="Requires Python 3.10 or higher")
+    async def test_primitive_list_new_syntax(self, es, esorm):
+        """
+        Test primitive list new syntax
+        """
+
+        class PrimitiveListModel(esorm.ESModel):
+            f_int_list: list[int] = []
+            f_str_list: list[str] = []
+
+        await esorm.setup_mappings()
+
+        doc = PrimitiveListModel(f_int_list=[1, 2, 3], f_str_list=['a', 'b', 'c'])
+        doc_id = await doc.save()
+        assert doc_id is not None
+
+        doc = await PrimitiveListModel.get(doc_id)
+        assert doc.f_int_list == [1, 2, 3]
+        assert doc.f_str_list == ['a', 'b', 'c']
