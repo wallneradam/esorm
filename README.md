@@ -1,10 +1,11 @@
-<img src="https://raw.githubusercontent.com/wallneradam/esorm/main/docs/_static/img/esorm.svg" width="110" height="110" align="left" style="margin-right: 1em;" alt="Logo"/>
+<img src="https://raw.githubusercontent.com/wallneradam/esorm/main/docs/_static/img/esorm.svg" width="110" height="110" align="left" style="margin-right: 1em; margin-bottom: 0.5em" alt="Logo"/>
 
 # ESORM - Python ElasticSearch ORM based on Pydantic
 
-<small>Some ideas come from [Pydastic](https://github.com/RamiAwar/pydastic) library, which is similar,
-but not as advanced (yet).</small>
-
+ESORM is an ElasticSearch Object Relational Mapper or Object Document Mapper (ODM) if you like,
+ for Python based on Pydantic. It is a high-level library for managing ElasticSearch documents
+ in Python. It is fully async and uses annotations and type hints for type checking and IDE autocompletion.
+    
 ## ☰ Table of Contents
 
 - [💾 Installation](#installation)
@@ -16,6 +17,7 @@ but not as advanced (yet).</small>
         - [Python basic types](#python-basic-types)
         - [ESORM field types](#esorm-field-types)
         - [Nested documents](#nested-documents)
+        - [List primitive fields](#list-primitive-fields)
         - [ESBaseModel](#esbasemodel)
         - [Id field](#id-field)
         - [Model Settings](#model-settings)
@@ -40,6 +42,7 @@ but not as advanced (yet).</small>
     - [Optimistic concurrency control](docs/advanced.md#optimistic-concurrency-control)
     - [Lazy properties](docs/advanced.md#lazy-properties)
     - [Shard routing](docs/advanced.md#shard-routing)
+    - [Retreive Selected Fields Only](docs/advanced.md#retreive-selected-fields-only)
     - [Watchers](docs/advanced.md#watchers)
     - [FastAPI integration](docs/advanced.md#fastapi-integration)
 - [🧪 Testing](#testing)
@@ -126,6 +129,18 @@ This is how the python types are converted to ES types:
 | `datetime.date`     | `date`    |                             |
 | `datetime.time`     | `date`    | Stored as 1970-01-01 + time |
 | `typing.Literal`    | `keyword` |                             |
+| `UUID`              | `keyword` |                             |
+| `Path`              | `keyword` |                             |
+| `IntEnum`           | `integer` |                             |
+| `Enum`              | `keyword` | also StrEnum                |
+
+Some special pydanctic types are also supported:
+
+| Pydantic type   | ES type   | Comment |
+|-----------------|-----------|---------|
+| `URL`           | `keyword` |         |
+| `IPvAddressAny` | `ip`      |         |
+
 
 <a id="esorm-field-types"></a>
 #### ESORM field types
@@ -385,6 +400,22 @@ class User(ESModel):
 
 The documentation is usseful if you create an API and you want to generate documentation from the model.
 It can be used in [FastAPI](https://fastapi.tiangolo.com/) for example.
+
+<a id="aliases"></a>
+### Aliases
+
+You can specify aliases for fields:
+
+```python
+from esorm import ESModel
+from esorm.fields import keyword, Field
+
+
+class User(ESModel):
+    full_name: keyword = Field(alias='fullName')  # In ES `fullName` will be the field name
+```
+
+This is good for renaming fields in the model without changing the ElasticSearch field name.
 
 <a id="connecting-to-elasticsearch"></a>
 ### Connecting to ElasticSearch

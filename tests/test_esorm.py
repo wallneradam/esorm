@@ -991,3 +991,76 @@ class TestBaseTests:
         doc = await PrimitiveListModel.get(doc_id)
         assert doc.f_int_list == [1, 2, 3]
         assert doc.f_str_list == ['a', 'b', 'c']
+
+    async def test_alias(self, es, esorm):
+        """
+        Test alias support
+        """
+
+        class AliasModel(esorm.ESModel):
+            f_str: str = esorm.fields.Field(..., alias='f_str_alias')
+
+        await esorm.setup_mappings()
+
+        index = AliasModel.ESConfig.index
+        properties = (await es.indices.get_mapping(index=index, request_timeout=90))[index]['mappings']['properties']
+        assert 'f_str' not in properties
+        assert 'f_str_alias' in properties
+
+        doc = AliasModel(f_str='test')
+        doc_id = await doc.save()
+        assert doc_id is not None
+
+        # Access by field name
+        doc = await AliasModel.get(doc_id)
+        assert doc.f_str == 'test'
+        # Access by alias
+        assert doc.dict(by_alias=True).get('f_str_alias') == 'test'
+
+    async def test_ipvany(self, es, esorm):
+        """
+        Test IPvAnyAddress field
+        """
+        from pydantic.networks import IPvAnyAddress
+
+        class IPvAnyModel(esorm.ESModel):
+            f_ipv4: IPvAnyAddress
+            f_ipv6: IPvAnyAddress
+
+        await esorm.setup_mappings()
+
+        doc = IPvAnyModel(f_ipv4='127.0.0.1', f_ipv6='::1')
+        doc_id = await doc.save()
+        assert doc_id is not None
+
+        doc = await IPvAnyModel.get(doc_id)
+        assert str(doc.f_ipv4) == '127.0.0.1'
+        assert str(doc.f_ipv6) == '::1'
+
+    async def test_enum(self, es, esorm):
+        """
+        Test Enum field
+        """
+        from enum import IntEnum, Enum
+
+        class TestIntEnum(IntEnum):
+            A = 1
+            B = 2
+
+        class TestStrEnum(str, Enum):
+            A = 'a'
+            B = 'b'
+
+        class EnumModel(esorm.ESModel):
+            f_int_enum: TestIntEnum
+            f_str_enum: TestStrEnum
+
+        await esorm.setup_mappings()
+
+        doc = EnumModel(f_int_enum=TestIntEnum.A, f_str_enum=TestStrEnum.B)
+        doc_id = await doc.save()
+        assert doc_id is not None
+
+        doc = await EnumModel.get(doc_id)
+        assert doc.f_int_enum == TestIntEnum.A
+        assert doc.f_str_enum == TestStrEnum.B

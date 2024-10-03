@@ -4,6 +4,7 @@ This module contains the ESModel classes and related functions
 from typing import (TypeVar, Any, Dict, Optional, Tuple, Type, Union, get_args, get_origin, List, Callable,
                     Awaitable, Literal)
 from typing_extensions import TypedDict, Annotated
+from enum import Enum, IntEnum
 
 import asyncio
 import ast
@@ -22,9 +23,11 @@ from pydantic.fields import Field, PrivateAttr
 # noinspection PyProtectedMember
 from pydantic.fields import FieldInfo  # It is just not in __all__ of pydantic.fields, but we strongly need it
 from pydantic_core import Url
+from pydantic.networks import IPvAnyAddress
 
 from uuid import UUID
 from pathlib import Path
+from ipaddress import IPv4Address, IPv6Address
 
 from .utils import snake_case, utcnow
 from .aggs import ESAggs, ESAggsResponse
@@ -72,8 +75,9 @@ _pydantic_type_map = {
     # Other python types
     UUID: 'keyword',
     Path: 'keyword',
-    # Pydantic core types
+    # Pydantic types
     Url: 'keyword',
+    IPvAnyAddress: 'ip',
 }
 
 # TModel type variable
@@ -369,6 +373,18 @@ class ESModel(ESBaseModel):
             elif isinstance(v, UUID) or isinstance(v, Path) or isinstance(v, Url):
                 data[k] = str(v)
 
+            # Convert IPvAnyAddress fields
+            elif isinstance(v, IPv4Address) or isinstance(v, IPv6Address):
+                data[k] = str(v)
+
+            # Convert IntEnum fields
+            elif isinstance(v, IntEnum):
+                data[k] = v.value
+
+            # Convert Enum or StrEnum fields
+            elif isinstance(v, Enum):
+                data[k] = str(v.value)
+
             # Convert subclasses
             elif isinstance(v, dict):
                 cls._recursive_convert_to_es(v, _level + 1)
@@ -441,7 +457,7 @@ class ESModel(ESBaseModel):
             raise InvalidResponseError
 
         for k, v in source.items():
-            if k in self.__fields_set__:
+            if k in self.__pydantic_fields_set__:
                 setattr(self, k, v)
 
         self._recursive_convert_from_es(source)
@@ -1223,6 +1239,14 @@ async def setup_mappings(*_, debug=False):
             create_mapping(pydantic_type, properties)
             return {'properties': properties}
 
+        # IntEnum type as integer
+        if issubclass(pydantic_type, IntEnum):
+            return {'type': 'integer'}
+
+        # Other Enum types as keyword
+        if issubclass(pydantic_type, Enum):
+            return {'type': 'keyword'}
+
         # Is it an ESORM type?
         if hasattr(pydantic_type, '__es_type__'):
             return {'type': pydantic_type.__es_type__}
@@ -1244,6 +1268,10 @@ async def setup_mappings(*_, debug=False):
             # Skip id field, because it won't be stored
             if hasattr(model, 'ESConfig') and model.ESConfig.id_field == name:
                 continue
+            # Alias support
+            if field_info.alias:
+                name = field_info.alias
+            # Get extra field info
             extra = field_info.json_schema_extra or {}
             # Process field
             res = get_field_data(field_info.annotation)
