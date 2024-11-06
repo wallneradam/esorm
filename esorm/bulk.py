@@ -39,7 +39,10 @@ class ESBulk:
         """
         # Do the bulk operation if no exception is raised
         if exc_val is None:
-            res = await es.bulk(operations=self._actions, **self._bulk_kwargs)
+            try:
+                res = await es.bulk(operations=self._actions, **self._bulk_kwargs)
+            except TypeError:  # ES 7.x
+                res = await es.bulk(body=self._actions, **self._bulk_kwargs)
             errors = []
             for idx, item in enumerate(res['items']):
                 model = self._models_to_index[idx]
