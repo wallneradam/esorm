@@ -186,6 +186,26 @@ the `bytes()` method: `binary_field.bytes()`.
 You can also use `Annotated` types to specify the ES type, like Pydantic `PositiveInt` and 
 `NegativeInt` and similar.
 
+##### geo_point
+
+You can use geo_point field type for location data:
+
+```python
+from esorm import ESModel
+from esorm.fields import geo_point
+
+
+class Place(ESModel):
+    name: str
+    location: geo_point
+    
+
+def create_place():
+    place = Place(name='Budapest', location=geo_point(lat=47.4979, long=19.0402))
+    place.save()
+```
+
+
 <a id="nested-documents"></a>
 #### Nested documents
 

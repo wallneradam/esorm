@@ -126,7 +126,7 @@ class HalfFloat(float):
 
     @classmethod
     def __get_pydantic_core_schema__(cls, _, handler):
-        return core_schema.no_info_after_validator_function(cls, handler(float))
+        return core_schema.no_info_after_validator_function(float, handler(float))
 
 
 class Float(float):
@@ -135,7 +135,7 @@ class Float(float):
 
     @classmethod
     def __get_pydantic_core_schema__(cls, _, handler):
-        return core_schema.no_info_after_validator_function(cls, handler(float))
+        return core_schema.no_info_after_validator_function(float, handler(float))
 
 
 class Double(float):
@@ -144,7 +144,7 @@ class Double(float):
 
     @classmethod
     def __get_pydantic_core_schema__(cls, _, handler):
-        return core_schema.no_info_after_validator_function(cls, handler(float))
+        return core_schema.no_info_after_validator_function(float, handler(float))
 
 
 class LatLon(BaseModel):
@@ -232,10 +232,13 @@ def Field(
     :param extra: any additional keyword arguments will be added as is to the schema
     :return: A field info object
     """
+    extra = dict(extra)
+    if index is not None:
+        extra['index'] = index
     return PField(default, alias=alias,
                   title=title, description=description,
                   exclude=exclude, include=include, frozen=frozen,
-                  index=index, json_schema_extra=extra)
+                  json_schema_extra=extra)
 
 
 # noinspection PyPep8Naming

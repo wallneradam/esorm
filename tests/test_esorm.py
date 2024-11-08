@@ -1064,3 +1064,29 @@ class TestBaseTests:
         doc = await EnumModel.get(doc_id)
         assert doc.f_int_enum == TestIntEnum.A
         assert doc.f_str_enum == TestStrEnum.B
+
+    async def test_es_types(self, es, model_es):
+        """
+        Test ES types
+        """
+        from esorm.fields import geo_point
+
+        doc = model_es(
+            f_keyword='test',
+            f_text='test',
+            f_binary=b'\x01\x02\x03\x04',
+            f_byte=42,
+            f_short=4242,
+            f_int32=1337,
+            f_long=-424242,
+            f_unsigned_long=424242,
+            f_float16=1.0,
+            f_float32=1.0,
+            f_double=1.0,
+            f_geo_point=geo_point(lat=1.0, lon=2.0),
+        )
+        doc_id = await doc.save()
+        assert doc_id is not None
+
+        doc = await model_es.get(doc_id)
+        assert doc.f_keyword == 'test'
