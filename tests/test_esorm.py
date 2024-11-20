@@ -4,7 +4,7 @@ import sys
 import pytest
 
 
-@pytest.mark.parametrize('service', ['es8x', 'es7x'], scope='class')
+@pytest.mark.parametrize('service', ['es7x', 'es8x'], scope='class')
 class TestBaseTests:
     """
     Base tests
@@ -472,6 +472,54 @@ class TestBaseTests:
                 update_without_retry(doc._id),
             )
 
+    async def test_retry_on_conflict_reload(self, es, esorm, model_timestamp):
+        import asyncio
+        from elasticsearch import ConflictError
+
+        class RetryTestModel(model_timestamp):
+            @esorm.retry_on_conflict(6)
+            async def update(self):
+                self.f_int += 1
+                await self.save()
+
+            @esorm.retry_on_conflict(3, reload_on_conflict=False)
+            async def update_without_retry(self):
+                self.f_int += 1
+                await self.save()
+
+        await esorm.setup_mappings()
+
+        doc = RetryTestModel(f_str="occ_retry", f_int=10)
+        await doc.save()
+
+        doc1 = await RetryTestModel.get(doc._id)
+        doc2 = await RetryTestModel.get(doc._id)
+        doc3 = await RetryTestModel.get(doc._id)
+        doc4 = await RetryTestModel.get(doc._id)
+        doc5 = await RetryTestModel.get(doc._id)
+        doc6 = await RetryTestModel.get(doc._id)
+
+        await asyncio.gather(
+            doc1.update(),  # 11
+            doc2.update(),  # 12
+            doc3.update(),  # 13
+            doc4.update(),  # 14
+            doc5.update(),  # 15
+            doc6.update(),  # 16
+        )
+
+        await doc.reload()
+        assert doc.f_int == 16
+
+        # Try without reload
+
+        with pytest.raises(ConflictError):
+            await asyncio.gather(
+                doc1.update_without_retry(),
+                doc2.update_without_retry(),
+                doc3.update_without_retry(),
+            )
+
     # noinspection PyBroadException
     async def test_crud_delete(self, es, esorm, model_nested):
         """
@@ -508,6 +556,50 @@ class TestBaseTests:
                 assert doc is not None
                 await bulk.delete(doc)
 
+    async def test_race_condition_bulk(self, es, esorm, model_timestamp):
+        """
+        Test race condition with bulk operations
+        Race conditions should raise a ConflictError
+        """
+
+        class BulkTestModel(model_timestamp):
+            ...
+
+        await esorm.setup_mappings()
+
+        doc = BulkTestModel(f_str="occ", f_int=10)
+        await doc.save()
+
+        # Get 2 instances of the same document
+        doc1 = await BulkTestModel.get(doc._id)
+        doc1.f_int = 1
+        doc2 = await BulkTestModel.get(doc._id)
+        doc2.f_int = 2
+
+        # Save the 1st instance
+        assert doc1._version == 1
+        assert doc1._seq_no == 0
+        await doc1.save()
+        assert doc1._version == 2
+        assert doc1._seq_no == 1
+
+        # Save the 2nd in a bulk operation should raise a conflict
+        assert doc2._version == 1
+        assert doc2._seq_no == 0
+        with pytest.raises(esorm.error.BulkError):
+            try:
+                async with esorm.ESBulk(wait_for=True) as bulk:
+                    await bulk.save(doc2)
+            except esorm.error.BulkError as e:
+                assert len(e.failed_operations) == 1
+                assert e.failed_operations[0]['type'] == 'version_conflict_engine_exception'
+                raise e
+
+        doc = await BulkTestModel.get(doc._id)
+        assert doc.f_int == 1
+        assert doc._version == 2
+        assert doc._seq_no == 1
+
     async def test_bulk_race_condition_and_reload(self, es, esorm, model_nested, model_timestamp):
         """
         Test bulk operations with conflict
@@ -528,7 +620,7 @@ class TestBaseTests:
                 await bulk.save(doc1)
                 # This should not work, because this is a race condition
                 doc2.f_float = 11.1
-                doc1.f_nested.f_str = "nested_test1_updated1"
+                doc1.f_nested.f_str = "nested_test1_updated2"
                 await bulk.save(doc2)
 
         # We test reloading here, it should now update the _primary_term and _seq_no

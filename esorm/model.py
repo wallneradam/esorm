@@ -964,11 +964,13 @@ def lazy_property(func: Callable[[], Awaitable[Any]]):
 # Optimistic concurrency control
 #
 
-def retry_on_conflict(max_retries=-1):
+def retry_on_conflict(max_retries=-1, *, reload_on_conflict=True):
     """
     Decorator for optimistic concurrency control
 
     :param max_retries: The maximum number of retries, -1 for infinite
+    :param reload_on_conflict: If True, reload the document from ES on conflict if it is a method
+                               of ESModel
     :return: The decorated function
     """
 
@@ -980,6 +982,10 @@ def retry_on_conflict(max_retries=-1):
                 try:
                     return await func(*args, **kwargs)
                 except ElasticConflictError:
+                    # Reload the document if it is a method of ESModel
+                    if reload_on_conflict and isinstance(args[0], ESModel):
+                        await args[0].reload()
+                    # Retry if max_retries is not reached
                     if max_retries == -1 or retries < max_retries:
                         retries += 1
                         logger.warning(f"Optimistic concurrency control conflict, retrying {retries}/{max_retries}")

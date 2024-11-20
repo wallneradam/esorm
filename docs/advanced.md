@@ -24,7 +24,6 @@ class User(ESModel):
     
 async def test_race_condition():
     """ Update the user """
-    import asyncio
     from elasticsearch import ConflictError
     
     # Load the user
@@ -110,6 +109,36 @@ async def test_retry_on_conflict(user: User):
         login(user._id),
         login(user._id),
         login(user._id),
+    )
+```
+
+#### If it is a model method
+
+If you retry a model method, it will reload the model automaticaly by default before calling the method again:
+```python
+import asyncio
+from esorm import ESModel, retry_on_conflict
+
+
+class User(ESModel):
+    first_name: str
+    last_name: str
+    logins: int = 0
+    
+    @retry_on_conflict(3, reload_on_conflict=True)  # reload_on_conflict is True by default 
+    async def login(self):
+        self.logins += 1
+        await self.save()
+        
+async def test_retry_on_conflict(user: User):
+    user_1 = await User.get(user._id)
+    user_2 = await User.get(user._id)
+    user_3 = await User.get(user._id)
+    # This won't raise a ConflictError, becaue the model reloads and retries the method on conflict   
+    await asyncio.gather(
+        user_1.login(),
+        user_2.login(),
+        user_3.login(),
     )
 ```
 

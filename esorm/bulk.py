@@ -95,8 +95,9 @@ class ESBulk:
             index['routing'] = routing
 
         # Optimistic concurrency check
-        if model._primary_term and model._seq_no:
+        if model._primary_term is not None:
             index['if_primary_term'] = model._primary_term
+        if model._seq_no is not None:
             index['if_seq_no'] = model._seq_no
 
         # Support for ESModelTimestamp
