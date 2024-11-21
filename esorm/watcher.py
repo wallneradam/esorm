@@ -211,6 +211,7 @@ async def setup_watchers(*_, debug=False):
         if debug:
             from pprint import pformat
             logger.debug(
-                f"`{Watcher.__name__}` watcer:\n {pformat(watcher.to_es(), indent=2, width=100, compact=False, sort_dicts=False)}")
-        await es.watcher.put_watch(id=Watcher.__name__, **watcher.to_es())
-        logger.info(f"Watcher {Watcher.__name__} created.")
+                f"`{WatcherClass.__name__}` watcher:\n {pformat(watcher.to_es(), indent=2, width=100,
+                                                                compact=False, sort_dicts=False)}")
+        await es.watcher.put_watch(id=WatcherClass.__name__, **watcher.to_es())
+        logger.info(f"Watcher {WatcherClass.__name__} created.")
