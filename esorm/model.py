@@ -1020,11 +1020,13 @@ class Pagination(BaseModel):
         :param model_cls: The model to decorate
         :return: The decorated model
         """
+        original_cls = getattr(model_cls, '_original_cls', model_cls)
 
         class Wrapped(model_cls):
             """
             Decorated model class with pagination
             """
+            _original_cls = original_cls
 
             # noinspection PyProtectedMember
             @classmethod
@@ -1042,6 +1044,12 @@ class Pagination(BaseModel):
                     except KeyError:
                         pass
                 return res
+
+            def __reduce__(self):
+                logger.warning("Pickling a decorated model with pagination may cause issues")
+                # When serializing, restore as an instance of the original class
+                # The self.__dict__ contains all the necessary data
+                return self._original_cls, (), self.__dict__
 
         # Copy magic attributes
         Wrapped.__name__ = model_cls.__name__ + '_pagination'
@@ -1075,11 +1083,13 @@ class Sort(BaseModel):
         :param model_cls: The model to decorate
         :return: The decorated model
         """
+        original_cls = getattr(model_cls, '_original_cls', model_cls)
 
         class Wrapped(model_cls):
             """
             Decorated model class with sort
             """
+            _original_cls = original_cls
 
             # noinspection PyProtectedMember
             @classmethod
@@ -1090,6 +1100,11 @@ class Sort(BaseModel):
                               **kwargs) -> ESResponse:
                 sort = self.sort if sort is None else sort
                 return await model_cls._search(query, page_size=page_size, page=page, sort=sort, **kwargs)
+
+            def __reduce__(self):
+                # When serializing, restore as an instance of the original class
+                # The self.__dict__ contains all the necessary data
+                return self._original_cls, (), self.__dict__
 
         # Copy magic attributes
         Wrapped.__name__ = model_cls.__name__ + '_sort'
