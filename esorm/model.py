@@ -32,7 +32,7 @@ from ipaddress import IPv4Address, IPv6Address
 from .utils import snake_case, utcnow
 from .aggs import ESAggs, ESAggsResponse
 
-from .error import InvalidResponseError, NotFoundError
+from .error import InvalidResponseError, NotFoundError, ConflictError as ESORMConflictError
 from .esorm import es, get_es_version
 from .query import ESQuery
 from .response import ESResponse
@@ -981,7 +981,7 @@ def retry_on_conflict(max_retries=-1, *, reload_on_conflict=True):
             while True:
                 try:
                     return await func(*args, **kwargs)
-                except ElasticConflictError:
+                except (ElasticConflictError, ESORMConflictError):
                     # Reload the document if it is a method of ESModel
                     if reload_on_conflict and isinstance(args[0], ESModel):
                         await args[0].reload()

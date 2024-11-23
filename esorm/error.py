@@ -31,6 +31,14 @@ class InvalidModelError(Exception):
     """
 
 
+class ConflictError(Exception):
+    """
+    Raised when a conflict occurs.
+
+    You can manually raise this to retry operation with `retry_on_conflict` decorator.
+    """
+
+
 class BulkOperationError(TypedDict):
     """
     A dictionary type to represent an error in a bulk operation response from Elasticsearch.
