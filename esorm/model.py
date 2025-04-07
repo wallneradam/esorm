@@ -24,6 +24,7 @@ from pydantic.fields import Field, PrivateAttr
 from pydantic.fields import FieldInfo  # It is just not in __all__ of pydantic.fields, but we strongly need it
 from pydantic_core import Url
 from pydantic.networks import IPvAnyAddress
+from pydantic import AnyUrl
 
 from uuid import UUID
 from pathlib import Path
@@ -140,9 +141,8 @@ def _patch_set_model_fields():
     """
     orig_set_model_fields = _model_construction.set_model_fields
 
-    def set_model_fields(model: Type[BaseModel], bases: Tuple[Type[Any], ...], config_wrapper: Any,
-                         types_namespace: Dict[str, Any]) -> None:
-        orig_set_model_fields(model, bases, config_wrapper, types_namespace)
+    def set_model_fields(model: Type[BaseModel], *args, **kwargs) -> None:
+        orig_set_model_fields(model, *args, **kwargs)
         _description_from_docstring(model)
 
     _model_construction.set_model_fields = set_model_fields
@@ -377,6 +377,10 @@ class ESModel(ESBaseModel):
             elif isinstance(v, IPv4Address) or isinstance(v, IPv6Address):
                 data[k] = str(v)
 
+            # Convert AnyUrl fields
+            elif isinstance(v, AnyUrl):
+                data[k] = str(v)
+
             # Convert IntEnum fields
             elif isinstance(v, IntEnum):
                 data[k] = v.value
@@ -437,6 +441,7 @@ class ESModel(ESBaseModel):
                 # Dict fields
                 elif isinstance(v, dict):
                     cls._recursive_convert_from_es(v)
+
             except KeyError:
                 pass
 
@@ -609,7 +614,7 @@ class ESModel(ESBaseModel):
         except ElasticNotFoundError:
             raise NotFoundError(f"Document with id {self.__id__} not found!")
 
-    async def reload(self, *, routing: Optional[str] = None) -> TModel:
+    async def reload(self, *, routing: Optional[str] = None) -> 'ESModel':
         """
         Reloads the document from ElasticSearch
 
@@ -1238,7 +1243,7 @@ async def setup_mappings(*_, debug=False):
         if origin is Literal:
             return {'type': 'keyword'}
 
-        # Pydantic annotated types
+        # Pydantic annotated types (e.g. HttpUrl in <v2.10.0)
         if origin is Annotated:
             return get_field_data(args[0])
 
@@ -1272,6 +1277,9 @@ async def setup_mappings(*_, debug=False):
         if hasattr(pydantic_type, '__es_type__'):
             return {'type': pydantic_type.__es_type__}
 
+        if issubclass(pydantic_type, AnyUrl):
+            return {'type': 'keyword'}
+
         # Python type
         try:
             # noinspection PyTypeChecker
@@ -1279,10 +1287,10 @@ async def setup_mappings(*_, debug=False):
         except KeyError:
             pass
 
-        raise ValueError(f'Unknown ES field type: {pydantic_type}')
+        raise ValueError(f'Unknown ES field type: {pydantic_type} (origin: {origin}, args: {args})')
 
     # noinspection PyShadowingNames
-    def create_mapping(model: Union[Type[BaseModel]], properties: dict):
+    def create_mapping(model: Type[BaseModel], properties: dict):
         """ Creates mapping for the model """
         field_info: FieldInfo
         for name, field_info in model.model_fields.items():

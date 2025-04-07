@@ -34,7 +34,7 @@ es = cast(AsyncElasticsearch, _ESProxy())
 __all__ = ['es', 'connect', 'get_es_version']
 
 
-async def connect(hosts: Union[str, Union[List[Union[str, Mapping[str, Union[str, int]], NodeConfig]]], None],
+async def connect(hosts: Union[str, Union[List[Union[str, Mapping[str, Union[str, int]], NodeConfig]], None]],
                   *args, wait=False, **kwargs) -> Optional[AsyncElasticsearch]:
     """
     Connect to ElasticSearch

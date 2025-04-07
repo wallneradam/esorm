@@ -1,0 +1,22 @@
+{
+    "include": [
+        "esorm"
+    ],
+    "exclude": [
+        "**/node_modules",
+        "**/__pycache__",
+    ],
+    "typeCheckingMode": "basic",
+    "reportUnknownMemberType": "none",
+    "reportAssignmentType": "none",
+    "reportRedeclaration": "none",
+    "reportArgumentType": "none",
+    "reportIndexIssue": "none",
+    "reportGeneralTypeIssues": "none",
+    "reportOptionalMemberAccess": "none",
+    "reportCallIssue": "none",
+    "reportAttributeAccessIssue": "none",
+    "reportReturnType": "none",
+    "reportOptionalOperand": "none",
+    "reportOperatorIssue": "none"
+}

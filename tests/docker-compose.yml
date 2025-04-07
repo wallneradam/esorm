@@ -9,7 +9,7 @@ services:
   es8x:
     container_name: es8x
     hostname: es8
-    image: elasticsearch:8.12.0
+    image: elasticsearch:8.17.4
     environment:
       - discovery.type=single-node
       - logger.level=ERROR
@@ -25,7 +25,7 @@ services:
   es7x:
     container_name: es7x
     hostname: es7
-    image: elasticsearch:7.17.13
+    image: elasticsearch:7.17.28
     environment:
       - discovery.type=single-node
       - logger.level=ERROR

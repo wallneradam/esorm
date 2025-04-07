@@ -91,7 +91,7 @@ It is tested with ElasticSearch 7.x and 8.x.
 <a id="supported-python-versions"></a>
 ### Supported Python versions
 
-Tested with Python 3.8 through 3.12.
+Tested with Python 3.8 through 3.13.
 
 <a id="usage"></a>
 ## 📖 Usage
