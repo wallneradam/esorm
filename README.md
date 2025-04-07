@@ -5,17 +5,20 @@
 ESORM is an ElasticSearch Object Relational Mapper or Object Document Mapper (ODM) if you like,
  for Python based on Pydantic. It is a high-level library for managing ElasticSearch documents
  in Python. It is fully async and uses annotations and type hints for type checking and IDE autocompletion.
-    
+
 ## ☰ Table of Contents
 
-- [💾 Installation](#installation)
-- [🚀 Features](#features)
+- [💾 Installation](#installation)
+- [🚀 Features](#features)
     - [Supported ElasticSearch versions](#supported-elasticsearch-versions)
     - [Supported Python versions](#supported-python-versions)
-- [📖 Usage](#usage)
+- [📖 Usage](#usage)
     - [Define a model](#define-a-model)
         - [Python basic types](#python-basic-types)
         - [ESORM field types](#esorm-field-types)
+        - [Field Definition](#field-definition)
+        - [geo_point](#geo_point)
+        - [dense_vector](#dense_vector)
         - [Nested documents](#nested-documents)
         - [List primitive fields](#list-primitive-fields)
         - [ESBaseModel](#esbasemodel)
@@ -35,22 +38,24 @@ ESORM is an ElasticSearch Object Relational Mapper or Object Document Mapper (OD
     - [Bulk operations](#bulk-operations)
     - [Search](#search)
         - [General search](#general-search)
-        - [Search with field value terms (dictioanry search)](#search-with-field-value-terms-dictionary-search)
+        - [Search with field value terms (dictionary search)](#search-with-field-value-terms-dictionary-search)
+        - [Vector Search](#vector-search)
     - [Aggregations](#aggregations)
     - [Pagination and sorting](#pagination-and-sorting)
-- [🔬 Advanced usage](docs/advanced.md#advanced-usage) 
+- [🔬 Advanced usage](docs/advanced.md#advanced-usage)
     - [Optimistic concurrency control](docs/advanced.md#optimistic-concurrency-control)
     - [Lazy properties](docs/advanced.md#lazy-properties)
     - [Shard routing](docs/advanced.md#shard-routing)
     - [Retreive Selected Fields Only](docs/advanced.md#retreive-selected-fields-only)
     - [Watchers](docs/advanced.md#watchers)
     - [FastAPI integration](docs/advanced.md#fastapi-integration)
-- [🧪 Testing](#testing)
-- [🛡 License](#license)
-- [📃 Citation](#citation)
+- [🖥 IDE Support](#ide-support)
+- [🧪 Testing](#testing)
+- [🛡 License](#license)
+- [📃 Citation](#citation)
 
 <a id="installation"></a>
-## 💾 Installation
+## 💾 Installation
 
 
 ```bash
@@ -58,7 +63,7 @@ pip install pyesorm
 ```
 
 <a id="features"></a>
-## 🚀 Features
+## 🚀 Features
 
 - Pydantic model representation of ElasticSearch documents
 - Automatic mapping and index creation
@@ -94,7 +99,7 @@ It is tested with ElasticSearch 7.x and 8.x.
 Tested with Python 3.8 through 3.13.
 
 <a id="usage"></a>
-## 📖 Usage
+## 📖 Usage
 
 <a id="define-a-model"></a>
 ### Define a model
@@ -149,7 +154,7 @@ You can specify ElasticSearch special fields using `esorm.fields` module.
 
 ```python
 from esorm import ESModel
-from esorm.fields import keyword, text, byte, geo_point
+from esorm.fields import keyword, text, byte, geo_point, dense_vector
 
 
 class User(ESModel):
@@ -157,6 +162,7 @@ class User(ESModel):
     email: keyword
     age: byte
     location: geo_point
+    embedding: dense_vector
     ...
 ```
 
@@ -177,16 +183,35 @@ The supported fields are:
 | `double`                    | `double`        |
 | `boolean`                   | `boolean`       |
 | `geo_point`                 | `geo_point`     |
+| `dense_vector`              | `dense_vector`  |
 
-The `binary` field accepts **base64** encoded strings. However, if you provide `bytes` to it, they 
-will be automatically converted to a **base64** string during serialization. When you retrieve the 
-field, it will always be a **base64** encoded string. You can easily convert it back to bytes using 
+The `binary` field accepts **base64** encoded strings. However, if you provide `bytes` to it, they
+will be automatically converted to a **base64** string during serialization. When you retrieve the
+field, it will always be a **base64** encoded string. You can easily convert it back to bytes using
 the `bytes()` method: `binary_field.bytes()`.
 
-You can also use `Annotated` types to specify the ES type, like Pydantic `PositiveInt` and 
+You can also use `Annotated` types to specify the ES type, like Pydantic `PositiveInt` and
 `NegativeInt` and similar.
 
-##### geo_point
+<a id="field-definition"></a>
+#### Field Definition
+
+ESORM fields can be defined with specialized field definition functions for more control:
+
+```python
+from esorm.fields import Field, TextField, NumericField, DenseVectorField
+
+class Product(ESModel):
+    id: str
+    name: str = TextField(..., min_length=3, max_length=100)
+    price: float = NumericField(..., gt=0)
+    is_available: bool = Field(True)
+    location: geo_point
+    embedding: dense_vector = DenseVectorField(..., dims=384, similarity="cosine")
+```
+
+<a id="geo_point"></a>
+#### geo_point
 
 You can use geo_point field type for location data:
 
@@ -198,13 +223,31 @@ from esorm.fields import geo_point
 class Place(ESModel):
     name: str
     location: geo_point
-    
+
 
 def create_place():
     place = Place(name='Budapest', location=geo_point(lat=47.4979, long=19.0402))
     place.save()
 ```
 
+<a id="dense_vector"></a>
+#### dense_vector
+
+The `dense_vector` field type enables vector similarity search capabilities in Elasticsearch (available in ES 8.x):
+
+```python
+from esorm import ESModel
+from esorm.fields import dense_vector, DenseVectorField
+
+class Document(ESModel):
+    id: str
+    content: str
+    embedding: dense_vector = DenseVectorField(
+        ...,  # required field
+        dims=384,  # dimension of the vector
+        similarity="cosine"  # similarity metric: 'cosine', 'dot_product', or 'l2'
+    )
+```
 
 <a id="nested-documents"></a>
 #### Nested documents
@@ -231,15 +274,15 @@ class Post(ESModel):
 
 You can use list of primitive fields:
 
-```python    
+```python
 from typing import List
 from esorm import ESModel
 
 
 class User(ESModel):
     emails: List[str]
-    favorite_ids: List[int] 
-    ...   
+    favorite_ids: List[int]
+    ...
 ```
 
 <a id="esbasemodel"></a>
@@ -258,11 +301,11 @@ from esorm.fields import keyword, text, byte
 class BaseUser(ESBaseModel):  # <---------------
     # This config will be inherited by User
     class ESConfig:
-        id_field = 'email'    
-    
+        id_field = 'email'
+
     name: text
     email: keyword
-    
+
 
 # This will be in the index because it is a subclass of ESModel
 class UserExtended(BaseUser, ESModel):
@@ -278,9 +321,9 @@ async def create_user():
     await user.save()
 ```
 
-##### Use it for nested documents 
+##### Use it for nested documents
 
-It is useful to use it for nested documents, because by using it will not be included in the 
+It is useful to use it for nested documents, because by using it will not be included in the
 ElasticSearch index.
 
 ```python
@@ -300,7 +343,7 @@ class Post(ESModel):
     content: text
     writer: User  # User is a nested document
 
-```  
+```
 
 <a id="id-field"></a>
 #### Id field
@@ -385,7 +428,7 @@ class User(ESModel):
 
 You can use `ESModelTimestamp` class to add `created_at` and `updated_at` fields to your model:
 
-```python 
+```python
 from esorm import ESModelTimestamp
 
 
@@ -540,7 +583,7 @@ from esorm import setup_mappings
 async def prepare_es():
     import models  # Import your models
     # Here models argument is not needed, but you can pass it to prevent unused import warning
-    await setup_mappings(models)  
+    await setup_mappings(models)
 ```
 
 First you must create (import) all model classes. Model classes will be registered into a global registry.
@@ -579,7 +622,7 @@ class User(ESModel):
 
 
 async def create_user():
-    # Create a new user 
+    # Create a new user
     user = User(name='John Doe', age=25)
     # Save the user to ElasticSearch
     new_user_id = await user.save()
@@ -647,9 +690,9 @@ async def delete_user(user_id: str):
 <a id="bulk-operations"></a>
 ### Bulk operations
 
-Bulk operations could be much faster than single operations, if you have lot of documents to 
+Bulk operations could be much faster than single operations, if you have lot of documents to
 create, update or delete.
- 
+
 You can use context for bulk operations:
 
 ```python
@@ -764,12 +807,79 @@ async def search_users():
         print(user.name)
 ```
 
+<a id="vector-search"></a>
+#### Vector Search
+
+ESORM supports Elasticsearch's vector search capabilities with the `dense_vector` type, enabling semantic search and similarity operations.
+
+### Defining Vector Fields
+
+To define a vector field, use the `DenseVectorField` function:
+
+```python
+from esorm import ESModel
+from esorm.fields import dense_vector, DenseVectorField
+
+class Document(ESModel):
+    id: str
+    content: str
+    embedding: dense_vector = DenseVectorField(
+        ...,  # required field
+        dims=384,  # dimension of the vector
+        similarity="cosine"  # similarity metric: 'cosine', 'dot_product', or 'l2'
+    )
+```
+
+### Vector Search with kNN
+
+To perform vector search using k-nearest neighbors (kNN):
+
+```python
+# Vector search using kNN
+results = await Document.search({
+    "knn": {
+        "field": "embedding",
+        "query_vector": [0.1, 0.2, ...],  # your query vector
+        "k": 10,  # number of neighbors to return
+        "num_candidates": 100  # number of candidates to consider
+    }
+})
+```
+
+### Hybrid Search
+
+You can combine vector search with text search for hybrid search:
+
+```python
+# Hybrid search - combining text match with vector similarity
+results = await Document.search({
+    "bool": {
+        "must": [
+            {
+                "match": {
+                    "content": {"query": "search query"}
+                }
+            }
+        ],
+        "should": [
+            {
+                "knn": {
+                    "field": "embedding",
+                    "query_vector": [0.1, 0.2, ...],
+                    "k": 10
+                }
+            }
+        ]
+    }
+})
+```
+
 <a id="aggregations"></a>
 ### Aggregations
 
-You can use `aggregate` method to get aggregations. 
+You can use `aggregate` method to get aggregations.
 You can specify an ES aggregation query as a dictionary. It also accepts normal ES queries,
-to be able to fiter which documents you want to aggregate. 
+to be able to fiter which documents you want to aggregate.
 Both the aggs parameter and the query parameter are type checked, because they are annotated as `TypedDict`s.
 You can use IDE autocompletion and type checking.
 
@@ -781,7 +891,7 @@ class User(ESModel):
     name: str
     age: int
     country: str
-    
+
 async def aggregate_avg():
     # Get average age of users
     aggs_def = {
@@ -793,7 +903,7 @@ async def aggregate_avg():
     }
     aggs = await User.aggregate(aggs_def)
     print(aggs['avg_age']['value'])
-    
+
 async def aggregate_avg_by_country(country = 'Hungary'):
     # Get average age of users by country
     aggs_def = {
@@ -816,8 +926,8 @@ async def aggregate_avg_by_country(country = 'Hungary'):
     }
     aggs = await User.aggregate(aggs_def, query)
     print(aggs['avg_age']['value'])
-    
-    
+
+
 async def aggregate_terms():
     # Get number of users by country
     aggs_def = {
@@ -861,10 +971,10 @@ def get_users(page = 1, page_size = 10):
 
     # 1st create the decorator itself
     pagination = Pagination(page=page, page_size=page_size)
-    
+
     # Then decorate your model
     res = pagination(User).search_by_fields(age=18)
-    
+
     # Here the result has maximum 10 items
     return res
 ```
@@ -881,34 +991,48 @@ class User(ESModel):
     id: int  # This will be used as the document _id in the index
     name: str
     age: int
-    
-    
+
+
 def get_users():
     # 1st create the decorator itself
     sort = Sort(sort=[
         {'age': {'order': 'desc'}},
         {'name': {'order': 'asc'}}
     ])
-    
+
     # Then decorate your model
     res = sort(User).search_by_fields(age=18)
-    
+
     # Here the result is sorted by age ascending
     return res
-    
+
 def get_user_sorted_by_name():
-    # You can also use this simplified syntax 
+    # You can also use this simplified syntax
     sort = Sort(sort='name')
-    
+
     # Then decorate your model
     res = sort(User).all()
-    
+
     # Here the result is sorted by age descending
     return res
 ```
 
+<a id="ide-support"></a>
+## 🖥 IDE Support
+
+### PyCharm
+This project is developed and tested with [PyCharm](https://www.jetbrains.com/pycharm/) IDE. It has full support for type hints and
+annotations. You can use the IDE autocompletion and type checking features.
+Recommended Jetbrains Plugins:
+- [Pydantic](https://plugins.jetbrains.com/plugin/12861-pydantic): This plugin provides support for Pydantic models and type hints, helps a lot with autocompletion and type checking.
+
+### VScode / Cursor
+
+In VSCode you can use PyLance. Unfortunately Pylance use static type checking, unlike PyCharm's heuristic type checker,
+which is not too good with ESORM's Union types.
+
 <a id="testing"></a>
-## 🧪 Testing
+## 🧪 Testing
 
 For testing you can use the `test.sh` in the root directory. It is a script to running
 tests on multiple python interpreters in virtual environments. At the top of the file you can specify
@@ -917,13 +1041,13 @@ which python interpreters you want to test. The ES versions are specified in `te
 If you already have a virtual environment, simply use `pytest` to run the tests.
 
 <a id="license"></a>
-## 🛡 License
+## 🛡 License
 
 This project is licensed under the terms of the [Mozilla Public License 2.0](https://www.mozilla.org/en-US/MPL/2.0/) (
 MPL 2.0) license.
 
 <a id="citation"></a>
-## 📃 Citation
+## 📃 Citation
 
 If you use this project in your research, please cite it using the following BibTeX entry:
 
@@ -935,5 +1059,5 @@ If you use this project in your research, please cite it using the following Bib
   publisher = {GitHub},
   journal = {GitHub repository},
   howpublished = {\url{https://github.com/wallneradam/esorm}},
-} 
+}
 ```

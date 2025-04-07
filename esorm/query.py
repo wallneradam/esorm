@@ -1,7 +1,7 @@
 """
 Elasticsearch query type definitions for ESORM
 """
-from typing import TypedDict, List, Dict, Union
+from typing import TypedDict, List, Dict, Union, Optional, Any
 from typing_extensions import TypeAlias
 from . import aggs
 
@@ -248,13 +248,37 @@ class FieldESMatchNone(TypedDict):
     """ Match none query structure """
 
 
+class ESKnnQuery(TypedDict, total=False):
+    """
+    Represents the parameters for a knn query in Elasticsearch.
+    """
+    field: str
+    """The field to search on."""
+    query_vector: List[float]
+    """The query vector."""
+    k: int
+    """The number of neighbors to return."""
+    num_candidates: Optional[int]
+    """The number of candidates to consider."""
+    filter: Optional[Union[Dict[str, Any], List[Dict[str, Any]]]]
+    """Optional filter to apply to the search."""
+
+
+class FieldKnn(TypedDict):
+    """
+    Represents a knn query for vector similarity search in Elasticsearch.
+    """
+    knn: ESKnnQuery
+    """KNN query structure"""
+
+
 #: Represents must queries in Elasticsearch
 ESMust: TypeAlias = List[
     Union[
         FieldRange, FieldTerm, FieldTerms, FieldMatch, FieldMatchPhrase, FieldExists, FieldWildcard, FieldPrefix,
         FieldFuzzy, FieldGeoDistance,
         FieldMatchAll, FieldESMatchNone,
-        'FieldBool'
+        'FieldBool', FieldKnn
     ]
 ]
 """ Represents must queries in Elasticsearch """
@@ -276,7 +300,7 @@ ESShould: TypeAlias = List[
         FieldRange, FieldTerm, FieldTerms, FieldMatch, FieldMatchPhrase, FieldExists, FieldWildcard, FieldPrefix,
         FieldFuzzy, FieldGeoDistance,
         FieldMatchAll, FieldESMatchNone,
-        'FieldBool'
+        'FieldBool', FieldKnn
     ]
 ]
 """ Represents should queries in Elasticsearch """
@@ -345,5 +369,7 @@ class ESQuery(TypedDict, total=False):
     """ Match all query structure """
     match_none: ESMatchNone
     """ Match none query structure """
+    knn: ESKnnQuery
+    """ KNN query structure """
     aggs: aggs.ESAggs
     """ Aggregations query structure """

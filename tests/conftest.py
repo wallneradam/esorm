@@ -68,7 +68,7 @@ async def docker_es(service):
 @pytest.fixture(scope="class")
 async def es(docker_es, esorm, service):
     """
-    ElasticSearch fixture for version 8.x
+    ElasticSearch fixture for the specified version
     """
     es = await esorm.connect(hosts=["http://localhost:9200"], wait=True)
 

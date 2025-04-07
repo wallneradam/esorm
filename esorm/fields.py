@@ -1,4 +1,4 @@
-from typing import Any, Optional, Union
+from typing import Any, Optional, Union, List, Literal
 from functools import cached_property
 
 from base64 import b64encode, b64decode
@@ -10,12 +10,12 @@ from pydantic import BaseModel
 
 __all__ = (
     'Keyword', 'Text', 'Binary', 'Byte', 'Short', 'Integer', 'Long', 'UnsignedLong', 'HalfFloat', 'Float', 'Double',
-    'LatLon',
+    'LatLon', 'DenseVector',
     'keyword', 'text', 'binary', 'byte', 'short', 'int32', 'long', 'unsigned_long', 'uint64', 'float16', 'float32',
-    'double',
+    'double', 'dense_vector',
     'geo_point',
     'integer', 'half_float', 'int64', 'boolean',
-    'Field', 'NumericField', 'TextField'
+    'Field', 'NumericField', 'TextField', 'DenseVectorField'
 )
 
 
@@ -59,7 +59,7 @@ class Binary(str):
     @classmethod
     def validate_binary(cls, v: Union[bytes, str], _) -> str:
         if isinstance(v, bytes):
-            v = b64encode(v).decode('ascii')
+            v = b64encode(v).decode('ascii')  # noqa
         return cls(v)
 
     @cached_property
@@ -159,6 +159,33 @@ class LatLon(BaseModel):
     """Longitude Coordinate"""
 
 
+class DenseVector(list):
+    """
+    Dense Vector Field - A list of floats for vector similarity search in Elasticsearch
+
+    This field is used to store vector embeddings for semantic search and similarity operations.
+    """
+    __es_type__ = 'dense_vector'
+
+    @classmethod
+    def __get_pydantic_core_schema__(cls, _, handler):
+        def validate_vector(values: List[float]) -> 'DenseVector':
+            """Validate vector values"""
+            if not all(isinstance(x, (int, float)) for x in values):
+                raise ValueError("All vector values must be numeric")
+            return cls(float(x) for x in values)
+
+        return core_schema.no_info_after_validator_function(
+            validate_vector,
+            handler(List[float])
+        )
+
+    @classmethod
+    def __get_pydantic_json_schema__(cls, _, handler):
+        # Use the same schema that would be used for `list`
+        return handler(core_schema.list_schema(core_schema.float_schema()))
+
+
 #
 # Field Types
 #
@@ -200,6 +227,10 @@ half_float = float16
 geo_point = LatLon
 """ Geo Point type """
 
+# Union type for dense_vector field
+dense_vector = Union[DenseVector, List[float]]
+"""Dense Vector type for vector similarity search"""
+
 
 # noinspection PyPep8Naming
 def Field(
@@ -218,7 +249,7 @@ def Field(
     """
     Basic Field Info
 
-    :param default: since this is replacing the field’s default, its first argument is used
+    :param default: since this is replacing the field's default, its first argument is used
         to set the default, use ellipsis (``...``) to indicate the field is required
     :param index: if this field should be indexed or not
     :param alias: the public name of the field
@@ -266,7 +297,7 @@ def NumericField(
     """
     Numeric Field Info
 
-    :param default: since this is replacing the field’s default, its first argument is used
+    :param default: since this is replacing the field's default, its first argument is used
         to set the default, use ellipsis (``...``) to indicate the field is required
     :param index: if this field should be indexed or not
     :param alias: the public name of the field
@@ -299,6 +330,7 @@ def NumericField(
     extra = dict(extra)
     if index is not None:
         extra['index'] = index
+    # noinspection PyTypeChecker
     return PField(default, alias=alias,
                   gt=gt, ge=ge, lt=lt, le=le,
                   multiple_of=multiple_of, allow_inf_nan=allow_inf_nan,
@@ -328,7 +360,7 @@ def TextField(
     """
     Text Field Info
 
-    :param default: since this is replacing the field’s default, its first argument is used
+    :param default: since this is replacing the field's default, its first argument is used
         to set the default, use ellipsis (``...``) to indicate the field is required
     :param index: if this field should be indexed or not
     :param alias: the public name of the field
@@ -351,9 +383,60 @@ def TextField(
     extra = dict(extra)
     if index is not None:
         extra['index'] = index
+    # noinspection PyTypeChecker
     return PField(default, alias=alias,
                   min_length=min_length, max_length=max_length,
                   regex=regex,
+                  title=title, description=description,
+                  exclude=exclude, include=include, frozen=frozen,
+                  json_schema_extra=extra)
+
+
+# noinspection PyPep8Naming
+def DenseVectorField(
+        default: Union[List[float], DenseVector],
+        *,
+        dims: int,
+        similarity: Literal['cosine', 'dot_product', 'l2'] = 'cosine',
+        index: bool = True,
+        alias: Optional[str] = None,
+        title: Optional[str] = None,
+        description: Optional[str] = None,
+        exclude: Optional[bool] = None,
+        include: Optional[bool] = None,
+        frozen: bool = False,
+        **extra
+) -> FieldInfo:
+    """
+    Dense Vector Field Info
+
+    :param default: since this is replacing the field's default, its first argument is used
+        to set the default, use ellipsis (``...``) to indicate the field is required
+    :param dims: dimensions for dense_vector fields, required
+    :param similarity: similarity metric for dense_vector fields ('cosine', 'dot_product', 'l2')
+    :param index: if this field should be indexed or not
+    :param alias: the public name of the field
+    :param title: can be any string, used in the schema
+    :param description: can be any string, used in the schema
+    :param exclude: exclude this field while dumping.
+        Takes same values as the ``include`` and ``exclude`` arguments on the ``.dict`` method.
+    :param include: include this field while dumping.
+        Takes same values as the ``include`` and ``exclude`` arguments on the ``.dict`` method.
+    :param frozen: if this field should be frozen or not
+    :param extra: any additional keyword arguments will be added as is to the schema
+    :return: A field info object
+    """
+    extra = dict(extra)
+    if index is not None:
+        extra['index'] = index
+
+    # Set dense_vector specific parameters
+    if dims is not None:
+        extra['dims'] = dims
+    if similarity is not None:
+        extra['similarity'] = similarity
+
+    return PField(default, alias=alias,
                   title=title, description=description,
                   exclude=exclude, include=include, frozen=frozen,
                   json_schema_extra=extra)
