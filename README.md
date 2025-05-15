@@ -81,7 +81,7 @@ pip install pyesorm
 - Shard routing support
 - Lazy properties
 - Support >= Python 3.8 (tested with 3.8 through 3.12)
-- Support for ElasticSearch 8.x and 7.x
+- Support for ElasticSearch 9.x, 8.x and 7.x
 - Watcher support (You may need ElasticSearch subscription license for this)
 - Pagination and sorting
 - FastAPI integration
@@ -91,7 +91,7 @@ Not all ElasticSearch features are supported yet, pull requests are welcome.
 <a id="supported-elasticsearch-versions"></a>
 ### Supported ElasticSearch versions
 
-It is tested with ElasticSearch 7.x and 8.x.
+It is tested with ElasticSearch 7.x, 8.x and 9.x.
 
 <a id="supported-python-versions"></a>
 ### Supported Python versions

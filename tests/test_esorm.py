@@ -4,7 +4,7 @@ import sys
 import pytest
 
 
-@pytest.mark.parametrize('service', ['es7x', 'es8x'], scope='class')
+@pytest.mark.parametrize('service', ['es7x', 'es8x', 'es9x'], scope='class')
 class TestBaseTests:
     """
     Base tests
@@ -1047,7 +1047,7 @@ class TestBaseTests:
         class PrimitiveListModel(esorm.ESModel):
             f_int_list: List[int] = []
             f_str_list: List[str] = []
-            f_unsigned_long: List[esorm.fields.unsigned_long] = []
+            f_unsigned_long: List[esorm.fields.unsigned_long] = []  # type: ignore
 
         await esorm.setup_mappings()
 
@@ -1072,7 +1072,7 @@ class TestBaseTests:
         class PrimitiveListModel(esorm.ESModel):
             f_int_list: list[int] = []
             f_str_list: list[str] = []
-            f_unsigned_long: list[esorm.fields.unsigned_long] = []
+            f_unsigned_long: list[esorm.fields.unsigned_long] = []  # type: ignore
 
         await esorm.setup_mappings()
 
@@ -1187,8 +1187,8 @@ class TestBaseTests:
         """
         Test Dense Vector feature
         """
-        if service != 'es8x':
-            pytest.skip("Dense Vector feature only supported in ES 8.x")
+        if service == 'es7x':
+            pytest.skip("Dense Vector is not supported in ES 7.x")
 
         from esorm.fields import dense_vector
 

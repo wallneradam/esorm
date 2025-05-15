@@ -6,10 +6,26 @@ networks:
       com.docker.network.bridge.name: esorm
 
 services:
+  es9x:
+    container_name: es9x
+    hostname: es9
+    image: elasticsearch:9.0.1
+    environment:
+      - discovery.type=single-node
+      - logger.level=ERROR
+      - node.name=es
+      - xpack.security.enabled=false
+      - ingest.geoip.downloader.enabled=false
+      - "ES_JAVA_OPTS=-Xms256m -Xmx256m"
+    networks:
+      - esorm
+    ports:
+      - "127.0.0.1:9200:9200"
+
   es8x:
     container_name: es8x
     hostname: es8
-    image: elasticsearch:8.17.4
+    image: elasticsearch:8.17.6
     environment:
       - discovery.type=single-node
       - logger.level=ERROR

@@ -78,6 +78,8 @@ async def es(docker_es, esorm, service):
         assert major == 7
     elif service == 'es8x':
         assert major == 8
+    elif service == 'es9x':
+        assert major == 9
 
     major, minor, _ = map(int, es_version.split('.'))
     assert es is not None
