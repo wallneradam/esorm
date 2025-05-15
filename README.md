@@ -80,7 +80,7 @@ pip install pyesorm
 - Docstring support for fields
 - Shard routing support
 - Lazy properties
-- Support >= Python 3.8 (tested with 3.8 through 3.12)
+- Support >= Python 3.8 (tested with 3.8 through 3.13)
 - Support for ElasticSearch 9.x, 8.x and 7.x
 - Watcher support (You may need ElasticSearch subscription license for this)
 - Pagination and sorting
