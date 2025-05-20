@@ -2,7 +2,7 @@
 This module contains the ESModel classes and related functions
 """
 from typing import (TypeVar, Any, Dict, Optional, Tuple, Type, Union, get_args, get_origin, List, Callable,
-                    Awaitable, Literal)
+                    Awaitable, Literal, cast)
 from typing_extensions import TypedDict, Annotated
 from enum import Enum, IntEnum
 
@@ -35,8 +35,8 @@ from .aggs import ESAggs, ESAggsResponse
 
 from .error import InvalidResponseError, NotFoundError, ConflictError as ESORMConflictError
 from .esorm import es, get_es_version
-from .query import ESQuery
-from .response import ESResponse
+from .query import ESQuery, ESMust
+from .response import ESResponse, Hit
 
 from .logger import logger
 
@@ -235,7 +235,7 @@ class ESBaseModel(BaseModel, metaclass=_ESModelMeta):
         lazy_property_max_recursion_depth: int = 1
         """ Maximum recursion depth of lazy properties """
 
-        _lazy_properties: Dict[str, Callable[[], Awaitable[Any]]] = {}
+        _lazy_properties: Dict[str, Callable[['ESBaseModel'], Awaitable[Any]]] = {}
         """ Lazy property async function definitions """
 
     model_config = ConfigDict(
@@ -255,8 +255,7 @@ class ESBaseModel(BaseModel, metaclass=_ESModelMeta):
         # noinspection PyProtectedMember
         for attr_name, attr in self.ESConfig._lazy_properties.items():
             async with _lazy_semaphore:
-                # If we use create_task, this creates a new context, so changed contextvars live only upward
-                res = await asyncio.create_task(attr(self))
+                res = await attr(self)
                 setattr(self, '_' + attr_name, res)
 
         # Calc lazy properties for nested models
@@ -326,7 +325,8 @@ class ESModel(ESBaseModel):
         return None
 
     @classmethod
-    async def call(cls: Type[TModel], method_name, *, wait_for=None, index: Optional[str] = None, **kwargs) -> dict:
+    async def call(cls: Type[TModel], method_name, *, wait_for=None, index: Optional[str] = None,
+                   **kwargs) -> dict | ESResponse:
         """
         Call an elasticsearch method
 
@@ -453,7 +453,7 @@ class ESModel(ESBaseModel):
         :raises esorm.error.InvalidResponseError: Returned when _id or _source is missing from data
         """
         if not data:
-            return None
+            return
 
         source: Optional[dict] = data.get("_source", None)
         # Get id field
@@ -482,7 +482,7 @@ class ESModel(ESBaseModel):
         setattr(self, '_seq_no', _seq_no)
 
     @classmethod
-    def from_es(cls: Type[TModel], data: Dict[str, Any]) -> Optional[TModel]:
+    def from_es(cls: Type[TModel], data: Dict[str, Any] | Hit) -> Optional[TModel]:
         """
         Returns an ESModel from an elasticsearch document that has _id, _source
 
@@ -542,7 +542,7 @@ class ESModel(ESBaseModel):
         :param routing: Shard routing value
         :return: The new document's ID, it is always a string, even if the id field is an integer
         """
-        kwargs = dict(
+        kwargs: dict = dict(
             document=self.to_es(),
             wait_for=wait_for,
         )
@@ -602,7 +602,7 @@ class ESModel(ESBaseModel):
         :raises esorm.error.NotFoundError: Returned if document not found
         :raises ValueError: Returned when id attribute missing from instance
         """
-        kwargs = dict(id=self.__id__)
+        kwargs: dict = dict(id=self.__id__)
         if self._primary_term is not None:
             kwargs['if_primary_term'] = self._primary_term
         if self._seq_no is not None:
@@ -737,11 +737,11 @@ class ESModel(ESBaseModel):
         """
         return {
             'bool': {
-                'must': [{
+                'must': cast(ESMust, [{
                     'match': {
                         k: {'query': v, 'operator': 'and'},
                     }
-                } for k, v in fields.items()]
+                } for k, v in fields.items()])
             }
         }
 
@@ -810,6 +810,26 @@ class ESModel(ESBaseModel):
         :return: The result list
         """
         return await cls.search({'match_all': {}}, index=index, **kwargs)
+
+    @classmethod
+    async def count(cls: Type[TModel], query: Optional[ESQuery] = None,
+                    routing: Optional[str] = None, index: Optional[str] = None, **kwargs) -> int:
+        """
+        Count documents in the index
+
+        :param query: ElasticSearch query dict
+        :param routing: Shard routing value
+        :param index: Index name, if not set, it will use the index from ESConfig
+        :param kwargs: Other search API params
+        :return: The count of documents
+        """
+        if query is None:
+            query = {'match_all': {}}
+        try:
+            res = await cls._search(query, page_size=0, routing=routing, index=index, **kwargs)
+            return res['hits']['total']['value']
+        except KeyError:
+            raise InvalidResponseError("Invalid response from ElasticSearch")
 
     @classmethod
     async def aggregate(cls: Type[TModel],
@@ -918,7 +938,7 @@ async def _lazy_process_results(res: Union[List[ESModel], ESModel, Dict[str, ESM
     return res
 
 
-def lazy_property(func: Callable[[], Awaitable[Any]]):
+def lazy_property(func: Callable[..., Awaitable[Any]]):
     """
     Decorator for lazy properties
 
@@ -945,7 +965,7 @@ def lazy_property(func: Callable[[], Awaitable[Any]]):
             return None
 
     @wraps(func)
-    async def async_wrapper(self, *args, **kwargs):
+    async def async_wrapper(self: ESBaseModel, *args, **kwargs):
         # Check recursion depth
         depth = _lazy_property_recursion_depth.get()
         if depth >= self.ESConfig.lazy_property_max_recursion_depth:
@@ -994,6 +1014,7 @@ def retry_on_conflict(max_retries=-1, *, reload_on_conflict=True):
                     if max_retries == -1 or retries < max_retries:
                         retries += 1
                         logger.warning(f"Optimistic concurrency control conflict, retrying {retries}/{max_retries}")
+                        # noinspection PyInconsistentReturns
                         continue
                     else:
                         raise

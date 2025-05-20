@@ -39,6 +39,7 @@ ESORM is an ElasticSearch Object Relational Mapper or Object Document Mapper (OD
     - [Search](#search)
         - [General search](#general-search)
         - [Search with field value terms (dictionary search)](#search-with-field-value-terms-dictionary-search)
+        - [Count](#count)
         - [Vector Search](#vector-search)
     - [Aggregations](#aggregations)
     - [Pagination and sorting](#pagination-and-sorting)
@@ -805,6 +806,30 @@ async def search_users():
     users = await User.search_by_fields({'age': 18})
     for user in users:
         print(user.name)
+```
+
+<a id="count"></a>
+#### Count
+
+You can count the number of documents in the index with the `count` method:
+
+```python
+from esorm import ESModel
+
+
+class User(ESModel):
+    name: str
+    age: int
+
+
+async def count_users():
+    count = await User.count()
+    print(count)
+
+
+async def count_users_by_age():
+    count = await User.count(query={'age': 18})
+    print(count)
 ```
 
 <a id="vector-search"></a>

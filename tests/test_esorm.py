@@ -174,41 +174,41 @@ class TestBaseTests:
         assert mappings[model_es_optional.ESConfig.index]['mappings']['properties']['f_int32']['type'] == 'integer'
         assert mappings[model_es_optional.ESConfig.index]['mappings']['properties']['f_long']['type'] == 'long'
         assert mappings[model_es_optional.ESConfig.index]['mappings']['properties']['f_unsigned_long'][
-            'type'] == 'unsigned_long'
+                   'type'] == 'unsigned_long'
         assert mappings[model_es_optional.ESConfig.index]['mappings']['properties']['f_float16']['type'] == 'half_float'
         assert mappings[model_es_optional.ESConfig.index]['mappings']['properties']['f_float32']['type'] == 'float'
         assert mappings[model_es_optional.ESConfig.index]['mappings']['properties']['f_double']['type'] == 'double'
         assert mappings[model_es_optional.ESConfig.index]['mappings']['properties']['f_geo_point'][
-            'type'] == 'geo_point'
+                   'type'] == 'geo_point'
         assert mappings[model_es_optional.ESConfig.index]['mappings']['properties']['f_positive_int']['type'] == 'long'
 
         # Test optional new syntax
         if sys.version_info >= (3, 10):
             mappings = await es.indices.get_mapping(index=model_es_optional_new_syntax.ESConfig.index)
             assert mappings[model_es_optional_new_syntax.ESConfig.index]['mappings']['properties']['f_keyword'][
-                'type'] == 'keyword'
+                       'type'] == 'keyword'
             assert mappings[model_es_optional_new_syntax.ESConfig.index]['mappings']['properties']['f_text'][
-                'type'] == 'text'
+                       'type'] == 'text'
             assert mappings[model_es_optional_new_syntax.ESConfig.index]['mappings']['properties']['f_binary'][
-                'type'] == 'binary'
+                       'type'] == 'binary'
             assert mappings[model_es_optional_new_syntax.ESConfig.index]['mappings']['properties']['f_byte'][
-                'type'] == 'byte'
+                       'type'] == 'byte'
             assert mappings[model_es_optional_new_syntax.ESConfig.index]['mappings']['properties']['f_short'][
-                'type'] == 'short'
+                       'type'] == 'short'
             assert mappings[model_es_optional_new_syntax.ESConfig.index]['mappings']['properties']['f_int32'][
-                'type'] == 'integer'
+                       'type'] == 'integer'
             assert mappings[model_es_optional_new_syntax.ESConfig.index]['mappings']['properties']['f_long'][
-                'type'] == 'long'
+                       'type'] == 'long'
             assert mappings[model_es_optional_new_syntax.ESConfig.index]['mappings']['properties']['f_unsigned_long'][
-                'type'] == 'unsigned_long'
+                       'type'] == 'unsigned_long'
             assert mappings[model_es_optional_new_syntax.ESConfig.index]['mappings']['properties']['f_float16'][
-                'type'] == 'half_float'
+                       'type'] == 'half_float'
             assert mappings[model_es_optional_new_syntax.ESConfig.index]['mappings']['properties']['f_float32'][
-                'type'] == 'float'
+                       'type'] == 'float'
             assert mappings[model_es_optional_new_syntax.ESConfig.index]['mappings']['properties']['f_double'][
-                'type'] == 'double'
+                       'type'] == 'double'
             assert mappings[model_es_optional_new_syntax.ESConfig.index]['mappings']['properties']['f_geo_point'][
-                'type'] == 'geo_point'
+                       'type'] == 'geo_point'
 
         # Check if mappings are correct for timestamp fields
         mappings = await es.indices.get_mapping(index=model_timestamp.ESConfig.index)
@@ -1218,3 +1218,36 @@ class TestBaseTests:
         results = await DenseVectorModel.search(query)
         assert len(results) == 1
         assert results[0].f_dense_vector == [1.0, 2.0, 3.0]
+
+    async def test_count(self, es, esorm):
+        """
+        Test count
+        """
+
+        class CountModel(esorm.ESModel):
+            f_int: int
+
+        await esorm.setup_mappings()
+
+        # Create 10 documents
+        for i in range(10):
+            doc = CountModel(f_int=i)
+            await doc.save(wait_for=True)
+
+        # Count all documents
+        count = await CountModel.count()
+        assert count == 10
+
+        # Count documents with a specific condition
+        count = await CountModel.count(query={
+            'bool': {
+                'must': [{
+                    "range": {
+                        'f_int': {
+                            'gte': 5
+                        }
+                    }
+                }]
+            }
+        })
+        assert count == 5

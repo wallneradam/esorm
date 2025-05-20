@@ -25,7 +25,7 @@ services:
   es8x:
     container_name: es8x
     hostname: es8
-    image: elasticsearch:8.17.6
+    image: elasticsearch:8.18.1
     environment:
       - discovery.type=single-node
       - logger.level=ERROR
