@@ -1251,3 +1251,97 @@ class TestBaseTests:
             }
         })
         assert count == 5
+
+    async def test_subfields(self, es, esorm):
+        """
+        Test subfields functionality
+        """
+        
+        class SubfieldModel(esorm.ESModel):
+            # Text field with keyword shortcut
+            f_text_keyword: esorm.fields.text = esorm.fields.TextField(..., keyword=True)
+            # Text field with custom subfields
+            f_text_custom: esorm.fields.text = esorm.fields.TextField(..., fields={
+                'raw': {'type': 'keyword'},
+                'english': {'type': 'text', 'analyzer': 'english'}
+            })
+            # Text field with both keyword and custom fields
+            f_text_combined: esorm.fields.text = esorm.fields.TextField(..., keyword=True, fields={
+                'english': {'type': 'text', 'analyzer': 'english'}
+            })
+            # Numeric field with subfields
+            f_numeric: float = esorm.fields.NumericField(..., es_type='double', fields={
+                'raw': {'type': 'keyword'}
+            })
+            # Regular field with custom keyword subfield
+            f_regular: str = esorm.fields.Field(..., fields={
+                'keyword': {'type': 'keyword', 'ignore_above': 256}
+            })
+            
+        await esorm.setup_mappings()
+        
+        # Check mappings
+        mappings = await es.indices.get_mapping(index=SubfieldModel.ESConfig.index)
+        properties = mappings[SubfieldModel.ESConfig.index]['mappings']['properties']
+        
+        # Test keyword shortcut
+        assert properties['f_text_keyword']['type'] == 'text'
+        assert 'fields' in properties['f_text_keyword']
+        assert properties['f_text_keyword']['fields']['keyword']['type'] == 'keyword'
+        
+        # Test custom subfields
+        assert properties['f_text_custom']['type'] == 'text'
+        assert 'fields' in properties['f_text_custom']
+        assert properties['f_text_custom']['fields']['raw']['type'] == 'keyword'
+        assert properties['f_text_custom']['fields']['english']['type'] == 'text'
+        assert properties['f_text_custom']['fields']['english']['analyzer'] == 'english'
+        
+        # Test combined (keyword + custom)
+        assert properties['f_text_combined']['type'] == 'text'
+        assert 'fields' in properties['f_text_combined']
+        assert properties['f_text_combined']['fields']['keyword']['type'] == 'keyword'
+        assert properties['f_text_combined']['fields']['english']['type'] == 'text'
+        assert properties['f_text_combined']['fields']['english']['analyzer'] == 'english'
+        
+        # Test numeric subfields
+        assert properties['f_numeric']['type'] == 'double'
+        assert 'fields' in properties['f_numeric']
+        assert properties['f_numeric']['fields']['raw']['type'] == 'keyword'
+        
+        # Test regular field with custom keyword
+        assert properties['f_regular']['type'] == 'keyword'  # str maps to keyword by default
+        assert 'fields' in properties['f_regular']
+        assert properties['f_regular']['fields']['keyword']['type'] == 'keyword'
+        assert properties['f_regular']['fields']['keyword']['ignore_above'] == 256
+        
+        # Create and save a document
+        doc = SubfieldModel(
+            f_text_keyword='Test with Keyword',
+            f_text_custom='Custom Test',
+            f_text_combined='Combined Test',
+            f_numeric=42.5,
+            f_regular='Regular Field'
+        )
+        doc_id = await doc.save(wait_for=True)
+        assert doc_id is not None
+        
+        # Test searching with keyword subfield
+        results = await SubfieldModel.search({
+            'term': {'f_text_keyword.keyword': 'Test with Keyword'}
+        })
+        assert len(results) == 1
+        assert results[0].f_text_keyword == 'Test with Keyword'
+        
+        # Test searching with custom subfield
+        results = await SubfieldModel.search({
+            'match': {'f_text_custom.english': 'custom testing'}
+        })
+        assert len(results) == 1
+        assert results[0].f_text_custom == 'Custom Test'
+        
+        # Test numeric subfield search with keyword subfield
+        results = await SubfieldModel.search({
+            'term': {'f_numeric.raw': '42.5'}
+        })
+        assert len(results) == 1
+        assert results[0].f_numeric == 42.5

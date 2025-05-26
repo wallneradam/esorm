@@ -17,6 +17,7 @@ ESORM is an ElasticSearch Object Relational Mapper or Object Document Mapper (OD
         - [Python basic types](#python-basic-types)
         - [ESORM field types](#esorm-field-types)
         - [Field Definition](#field-definition)
+        - [Subfields](#subfields)
         - [geo_point](#geo_point)
         - [dense_vector](#dense_vector)
         - [Nested documents](#nested-documents)
@@ -127,7 +128,7 @@ This is how the python types are converted to ES types:
 
 | Python type         | ES type   | Comment                     |
 |---------------------|-----------|-----------------------------|
-| `str`               | `text`    |                             |
+| `str`               | `keyword` |                             |
 | `int`               | `long`    |                             |
 | `float`             | `double`  |                             |
 | `bool`              | `boolean` |                             |
@@ -209,6 +210,80 @@ class Product(ESModel):
     is_available: bool = Field(True)
     location: geo_point
     embedding: dense_vector = DenseVectorField(..., dims=384, similarity="cosine")
+```
+
+<a id="subfields"></a>
+#### Subfields
+
+Elasticsearch allows you to define multiple ways to index the same field using subfields. 
+This is particularly useful for text fields where you might want both full-text search and exact matching capabilities.
+
+##### Basic Usage with `keyword` Shortcut
+
+The most common use case is adding a `keyword` subfield to a `text` field for exact matching:
+
+```python
+from esorm import ESModel
+from esorm.fields import TextField
+
+class Product(ESModel):
+    # Text field with automatic keyword subfield
+    title: str = TextField(..., keyword=True)
+    # Equivalent to: {'fields': {'keyword': {'type': 'keyword'}}}
+```
+
+With this setup, you can:
+- Search full-text on `title`
+- Do exact matches, aggregations, or sorting on `title.keyword`
+
+##### Custom Subfields
+
+You can define custom subfields for any field type using the `fields` parameter:
+
+```python
+from esorm import ESModel  
+from esorm.fields import TextField, NumericField, Field
+
+class Product(ESModel):
+    # Text field with multiple analyzers
+    description: str = TextField(..., fields={
+        'english': {'type': 'text', 'analyzer': 'english'},
+        'spanish': {'type': 'text', 'analyzer': 'spanish'}, 
+        'suggest': {'type': 'completion'}
+    })
+    
+    # Numeric field with keyword subfield for aggregations
+    price: float = NumericField(..., fields={
+        'raw': {'type': 'keyword'}
+    })
+    
+    # Regular field with normalized keyword
+    category: str = Field(..., fields={
+        'lowercase': {'type': 'keyword', 'normalizer': 'lowercase'}
+    })
+```
+
+##### Combining `keyword` Shortcut with Custom Fields
+
+You can use both the `keyword` shortcut and custom fields together. The keyword subfield will be automatically added if not already defined:
+
+```python
+class Product(ESModel):
+    # Both keyword and custom fields
+    title: str = TextField(..., keyword=True, fields={
+        'suggest': {'type': 'completion'},
+        'ngram': {'type': 'text', 'analyzer': 'ngram'}
+    })
+    # Results in: {
+    #     'keyword': {'type': 'keyword'},  # Added automatically
+    #     'suggest': {'type': 'completion'},
+    #     'ngram': {'type': 'text', 'analyzer': 'ngram'}
+    # }
+    
+    # Custom keyword configuration takes precedence
+    name: str = TextField(..., keyword=True, fields={
+        'keyword': {'type': 'keyword', 'ignore_above': 512}  # Custom config preserved
+    })
 ```
 
 <a id="geo_point"></a>

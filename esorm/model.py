@@ -1358,6 +1358,9 @@ async def setup_mappings(*_, debug=False):
                         v['index'] = extra['index']
                 else:
                     res['index'] = extra['index']
+            # Add subfields if specified
+            if 'fields' in extra:
+                res['fields'] = extra['fields']
             properties[name] = res
 
     # Process all models and create mappings

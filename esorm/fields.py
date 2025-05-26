@@ -1,4 +1,4 @@
-from typing import Any, Optional, Union, List, Literal
+from typing import Any, Optional, Union, List, Literal, Dict
 from functools import cached_property
 
 from base64 import b64encode, b64decode
@@ -236,13 +236,15 @@ dense_vector = Union[DenseVector, List[float]]
 def Field(
         default: Any,
         *,
+        # Elasticsearch args
         index: bool = True,
+        fields: Optional[Dict[str, Dict[str, Any]]] = None,
+        # Pydantic args
         alias: Optional[str] = None,
         # Other pydantic args
         title: Optional[str] = None,
         description: Optional[str] = None,
         exclude: Optional[bool] = None,
-        include: Optional[bool] = None,
         frozen: bool = False,
         **extra
 ) -> FieldInfo:
@@ -252,13 +254,11 @@ def Field(
     :param default: since this is replacing the field's default, its first argument is used
         to set the default, use ellipsis (``...``) to indicate the field is required
     :param index: if this field should be indexed or not
+    :param fields: Elasticsearch subfields mapping (e.g. {'keyword': {'type': 'keyword'}})
     :param alias: the public name of the field
     :param title: can be any string, used in the schema
     :param description: can be any string, used in the schema
     :param exclude: exclude this field while dumping.
-        Takes same values as the ``include`` and ``exclude`` arguments on the ``.dict`` method.
-    :param include: include this field while dumping.
-        Takes same values as the ``include`` and ``exclude`` arguments on the ``.dict`` method.
     :param frozen: if this field should be frozen or not
     :param extra: any additional keyword arguments will be added as is to the schema
     :return: A field info object
@@ -266,9 +266,11 @@ def Field(
     extra = dict(extra)
     if index is not None:
         extra['index'] = index
+    if fields is not None:
+        extra['fields'] = fields
     return PField(default, alias=alias,
                   title=title, description=description,
-                  exclude=exclude, include=include, frozen=frozen,
+                  exclude=exclude, frozen=frozen,
                   json_schema_extra=extra)
 
 
@@ -276,7 +278,10 @@ def Field(
 def NumericField(
         default: Union[int, float],
         *,
+        # Elasticsearch args
         index: Optional[bool] = None,
+        fields: Optional[Dict[str, Dict[str, Any]]] = None,
+        # Pydantic args
         alias: Optional[str] = None,
         gt: Optional[float] = None,
         ge: Optional[float] = None,
@@ -290,7 +295,6 @@ def NumericField(
         title: Optional[str] = None,
         description: Optional[str] = None,
         exclude: Optional[bool] = None,
-        include: Optional[bool] = None,
         frozen: bool = False,
         **extra
 ) -> FieldInfo:
@@ -300,6 +304,7 @@ def NumericField(
     :param default: since this is replacing the field's default, its first argument is used
         to set the default, use ellipsis (``...``) to indicate the field is required
     :param index: if this field should be indexed or not
+    :param fields: Elasticsearch subfields mapping (e.g. {'keyword': {'type': 'keyword'}})
     :param alias: the public name of the field
     :param gt: only applies to numbers, requires the field to be "greater than". The schema
         will have an ``exclusiveMinimum`` validation keyword
@@ -320,9 +325,6 @@ def NumericField(
     :param title: can be any string, used in the schema
     :param description: can be any string, used in the schema
     :param exclude: exclude this field while dumping.
-        Takes same values as the ``include`` and ``exclude`` arguments on the ``.dict`` method.
-    :param include: include this field while dumping.
-        Takes same values as the ``include`` and ``exclude`` arguments on the ``.dict`` method.
     :param frozen: if this field should be frozen or not
     :param extra: any additional keyword arguments will be added as is to the schema
     :return: A field info object
@@ -330,13 +332,15 @@ def NumericField(
     extra = dict(extra)
     if index is not None:
         extra['index'] = index
+    if fields is not None:
+        extra['fields'] = fields
     # noinspection PyTypeChecker
     return PField(default, alias=alias,
                   gt=gt, ge=ge, lt=lt, le=le,
                   multiple_of=multiple_of, allow_inf_nan=allow_inf_nan,
                   max_digits=max_digits, decimal_places=decimal_places,
                   title=title, description=description,
-                  exclude=exclude, include=include, frozen=frozen,
+                  exclude=exclude, frozen=frozen,
                   json_schema_extra=extra)
 
 
@@ -344,16 +348,19 @@ def NumericField(
 def TextField(
         default: str,
         *,
+        # ESORM args
         index: bool = True,
+        keyword: bool = False,
+        fields: Optional[Dict[str, Dict[str, Any]]] = None,
+        # Pydantic args
         alias: Optional[str] = None,
         min_length: Optional[int] = None,
         max_length: Optional[int] = None,
-        regex: Optional[str] = None,
+        pattern: Optional[str] = None,
         # Other pydantic args
         title: Optional[str] = None,
         description: Optional[str] = None,
         exclude: Optional[bool] = None,
-        include: Optional[bool] = None,
         frozen: bool = False,
         **extra
 ) -> FieldInfo:
@@ -363,19 +370,17 @@ def TextField(
     :param default: since this is replacing the field's default, its first argument is used
         to set the default, use ellipsis (``...``) to indicate the field is required
     :param index: if this field should be indexed or not
+    :param keyword: if True, adds a 'keyword' subfield for exact matching (shortcut)
+    :param fields: Elasticsearch subfields mapping (keyword will be added to this if both are specified)
     :param alias: the public name of the field
     :param min_length: only applies to strings, requires the field to have a minimum length. The
-        schema will have a ``minLength`` validation keyword
     :param max_length: only applies to strings, requires the field to have a maximum length. The
         schema will have a ``maxLength`` validation keyword
-    :param regex: only applies to strings, requires the field match against a regular expression
+    :param pattern: only applies to strings, requires the field match against a regular expression
         pattern string. The schema will have a ``pattern`` validation keyword
     :param title: can be any string, used in the schema
     :param description: can be any string, used in the schema
     :param exclude: exclude this field while dumping.
-        Takes same values as the ``include`` and ``exclude`` arguments on the ``.dict`` method.
-    :param include: include this field while dumping.
-        Takes same values as the ``include`` and ``exclude`` arguments on the ``.dict`` method.
     :param frozen: if this field should be frozen or not
     :param extra: any additional keyword arguments will be added as is to the schema
     :return: A field info object
@@ -383,12 +388,21 @@ def TextField(
     extra = dict(extra)
     if index is not None:
         extra['index'] = index
+    # Handle fields and keyword shortcut
+    if fields is not None or keyword:
+        # Start with custom fields or empty dict
+        field_mapping = dict(fields) if fields else {}
+        # Add keyword subfield if requested and not already present
+        if keyword and 'keyword' not in field_mapping:
+            field_mapping['keyword'] = {'type': 'keyword'}
+        if field_mapping:  # Only add if not empty
+            extra['fields'] = field_mapping
     # noinspection PyTypeChecker
     return PField(default, alias=alias,
                   min_length=min_length, max_length=max_length,
-                  regex=regex,
+                  pattern=pattern,
                   title=title, description=description,
-                  exclude=exclude, include=include, frozen=frozen,
+                  exclude=exclude, frozen=frozen,
                   json_schema_extra=extra)
 
 
@@ -396,14 +410,16 @@ def TextField(
 def DenseVectorField(
         default: Union[List[float], DenseVector],
         *,
+        # ESORM args
+        index: bool = True,
         dims: int,
         similarity: Literal['cosine', 'dot_product', 'l2'] = 'cosine',
-        index: bool = True,
+        fields: Optional[Dict[str, Dict[str, Any]]] = None,
+        # Pydantic args
         alias: Optional[str] = None,
         title: Optional[str] = None,
         description: Optional[str] = None,
         exclude: Optional[bool] = None,
-        include: Optional[bool] = None,
         frozen: bool = False,
         **extra
 ) -> FieldInfo:
@@ -415,13 +431,11 @@ def DenseVectorField(
     :param dims: dimensions for dense_vector fields, required
     :param similarity: similarity metric for dense_vector fields ('cosine', 'dot_product', 'l2')
     :param index: if this field should be indexed or not
+    :param fields: Elasticsearch subfields mapping
     :param alias: the public name of the field
     :param title: can be any string, used in the schema
     :param description: can be any string, used in the schema
     :param exclude: exclude this field while dumping.
-        Takes same values as the ``include`` and ``exclude`` arguments on the ``.dict`` method.
-    :param include: include this field while dumping.
-        Takes same values as the ``include`` and ``exclude`` arguments on the ``.dict`` method.
     :param frozen: if this field should be frozen or not
     :param extra: any additional keyword arguments will be added as is to the schema
     :return: A field info object
@@ -435,8 +449,11 @@ def DenseVectorField(
         extra['dims'] = dims
     if similarity is not None:
         extra['similarity'] = similarity
+    if fields is not None:
+        extra['fields'] = fields
 
+    # noinspection PyTypeChecker
     return PField(default, alias=alias,
                   title=title, description=description,
-                  exclude=exclude, include=include, frozen=frozen,
+                  exclude=exclude, frozen=frozen,
                   json_schema_extra=extra)
