@@ -188,7 +188,7 @@ class _ESModelMeta(ModelMetaclass):
             if 'ESConfig' in model.__dict__:
                 m_dict.update({k: v for k, v in model.ESConfig.__dict__.items() if k[0] != '_'})
             m_dict['_lazy_properties'] = {}
-
+            
             # Create (new) ESConfig class inside the class
             model.ESConfig = type('ESConfig', (object,), dict(m_dict))
 
@@ -288,6 +288,9 @@ class ESModel(ESBaseModel):
         """ ESModel Config """
         index: Optional[str] = None
         """ The index name """
+        
+        skip_init: Optional[bool] = False
+        """ Flag to skip model mapping creation """
 
         id_field: Optional[str] = None
         """ The name of the 'id' field """
@@ -1365,6 +1368,11 @@ async def setup_mappings(*_, debug=False):
 
     # Process all models and create mappings
     for index, model in _ESModelMeta.__models__.items():
+        
+        if model.ESConfig.skip_init:
+            logger.debug(f"`{index}` mappings creation: skipped.")
+            continue
+        
         # Get mappings from ES if already exists
         index_exists = False
         try:
