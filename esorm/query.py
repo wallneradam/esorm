@@ -1,7 +1,7 @@
 """
 Elasticsearch query type definitions for ESORM
 """
-from typing import TypedDict, List, Dict, Union, Optional, Any
+from typing import Literal, TypedDict, List, Dict, Union, Optional, Any
 from typing_extensions import TypeAlias
 from . import aggs
 
@@ -240,6 +240,28 @@ class ESMatchNone(TypedDict):
     pass
 
 
+class ESMultiMatch(TypedDict, total=False):
+    """
+    Represents a multi_match query in Elasticsearch.
+    """
+    query: str
+    """ Query string """
+    
+    type: Optional[Literal[
+        "best_fields", 
+        "most_fields",
+        "cross_fields", 
+        "phrase", 
+        "phrase_prefix", 
+        "bool_prefix",
+    ]]
+    """ Type of multi_match query """
+    
+    fields: Optional[List[str]]
+    """ Optional fields list to match on """
+    
+
+
 class FieldESMatchNone(TypedDict):
     """
     Represents a match_none query for matching no documents in Elasticsearch.
@@ -369,6 +391,8 @@ class ESQuery(TypedDict, total=False):
     """ Match all query structure """
     match_none: ESMatchNone
     """ Match none query structure """
+    multi_match: ESMultiMatch
+    """ MultiMatch query structure """
     knn: ESKnnQuery
     """ KNN query structure """
     aggs: aggs.ESAggs
