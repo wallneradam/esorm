@@ -1376,6 +1376,10 @@ async def setup_mappings(*_, debug=False):
             # Add subfields if specified
             if 'fields' in extra:
                 res['fields'] = extra['fields']
+            if "analyzer" in extra:
+                res["analyzer"] = extra["analyzer"]
+            if "search_analyzer" in extra:
+                res["search_analyzer"] = extra["search_analyzer"]
             properties[name] = res
 
     # Process all models and create mappings
