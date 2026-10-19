@@ -49,6 +49,7 @@ ESORM is an ElasticSearch Object Relational Mapper or Object Document Mapper (OD
         - [Vector Search](#vector-search)
     - [Aggregations](#aggregations)
     - [Pagination and sorting](#pagination-and-sorting)
+    - [Iterating through all results (scan)](#scan)
 - [🔬 Advanced usage](docs/advanced.md#advanced-usage)
     - [Optimistic concurrency control](docs/advanced.md#optimistic-concurrency-control)
     - [Lazy properties](docs/advanced.md#lazy-properties)
@@ -98,6 +99,7 @@ pip install pyesorm[opensearch]
 - Support for OpenSearch 3.x and 2.x
 - Watcher support (You may need ElasticSearch subscription license for this)
 - Pagination and sorting
+- Iterating through any number of results efficiently (point in time + `search_after`)
 - FastAPI integration
 
 Not all ElasticSearch features are supported yet, pull requests are welcome.
@@ -1231,6 +1233,62 @@ def get_user_sorted_by_name():
 
     # Here the result is sorted by age descending
     return res
+```
+
+<a id="scan"></a>
+### Iterating through all results (scan)
+
+Pagination is for showing results to users, it can't go deeper than 10,000 results by default
+(`index.max_result_window`). To process all results of a query (e.g. export, reindex, batch processing),
+use `scan()`, which can iterate through any number of documents efficiently:
+
+```python
+from esorm import ESModel
+
+
+class User(ESModel):
+    name: str
+    age: int
+
+
+async def process_adults():
+    async for user in User.scan({'range': {'age': {'gte': 18}}}):
+        print(user.name)
+```
+
+If you want to process the documents in batches (e.g. to save them with bulk operations), use `scan_batches()`:
+
+```python
+async def process_in_batches():
+    async for users in User.scan_batches(batch_size=500):
+        # Here `users` is a list of maximum 500 models
+        print(len(users))
+```
+
+It uses a [point in time](https://www.elastic.co/docs/reference/elasticsearch/rest-apis/paginate-search-results#search-after)
+(PIT) with `search_after`, so:
+
+- The results are consistent: documents created, modified or deleted during the iteration are not visible.
+- The query, sort and other parameters are the same as of `search()`. Without sort, the results come in index
+  order, which is the most efficient. A unique tiebreaker (`_shard_doc`, or `_id` on OpenSearch 2.x) is added to
+  the sort automatically, so no document is lost or duplicated, even if the sort field is not unique.
+- The `Sort` decorator works with it too, `Pagination` is ignored.
+- Lazy properties are computed for each batch.
+- `batch_size` is the number of documents fetched in one request (default 1000).
+- `keep_alive` is how long the point in time is kept alive *between two requests* (default `'1m'`), not the whole
+  iteration. Increase it if processing a batch takes longer.
+- The point in time is closed when the iteration ends. If the iteration may be stopped early (e.g. by `break`),
+  use `contextlib.aclosing()` to close it immediately, not only when the iterator is garbage collected:
+
+```python
+from contextlib import aclosing
+
+
+async def find_first_admin():
+    async with aclosing(User.scan()) as users:
+        async for user in users:
+            if user.name == 'admin':
+                return user
 ```
 
 <a id="ide-support"></a>

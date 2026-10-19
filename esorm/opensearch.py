@@ -9,6 +9,7 @@ The client is wrapped, so the same code works with both ElasticSearch and OpenSe
   `document`, `operations`, `mappings`) instead of `body`,
 - `dense_vector` mappings are converted to `knn_vector` mappings and ElasticSearch `knn` queries to OpenSearch
   `knn` queries,
+- the point in time API of ElasticSearch (`open_point_in_time`, `close_point_in_time`) is available,
 - the exceptions of the elasticsearch client are raised (e.g. `elasticsearch.NotFoundError`,
   `elasticsearch.ConflictError`).
 
@@ -340,6 +341,22 @@ class AsyncOpenSearchCompat(AsyncOpenSearch):
                               _convert_search_body)
     update_by_query = _compat(AsyncOpenSearch, 'update_by_query',
                               (('conflicts', 'max_docs', 'query', 'script', 'slice'), {}), _convert_search_body)
+
+    async def open_point_in_time(self, *, index: Any, keep_alive: str, **kwargs: Any) -> Dict[str, Any]:
+        """
+        Open a point in time, the result has the `id` of the point in time like in ElasticSearch
+        """
+        res = await self.create_pit(index=index, keep_alive=keep_alive, **kwargs)
+        return {**res, 'id': res['pit_id']}
+
+    async def close_point_in_time(self, *, id: str, **kwargs: Any) -> Dict[str, Any]:
+        """
+        Close a point in time, the result is in the format of ElasticSearch
+        """
+        res = await self.delete_pit(body={'pit_id': [id]}, **kwargs)
+        pits = res.get('pits', [])
+        return {'succeeded': all(pit.get('successful', False) for pit in pits),
+                'num_freed': sum(1 for pit in pits if pit.get('successful', False))}
 
     async def ping(self, *args, **kwargs) -> bool:
         """

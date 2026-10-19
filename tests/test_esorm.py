@@ -1252,6 +1252,85 @@ class TestBaseTests:
         })
         assert count == 5
 
+    async def test_scan(self, es, esorm, monkeypatch):
+        """
+        Test iterating through all results with scan
+        """
+        from contextlib import aclosing
+
+        class ScanModel(esorm.ESModel):
+            class ESConfig:
+                # More shards to test the tiebreaker of the sort
+                settings = dict(number_of_shards=3)
+
+            f_int: int
+            f_group: int
+
+        await esorm.setup_mappings()
+
+        async with esorm.ESBulk(wait_for=True) as bulk:
+            for i in range(50):
+                await bulk.save(ScanModel(f_int=i, f_group=i % 3))
+
+        # All documents
+        docs = [doc async for doc in ScanModel.scan(batch_size=7)]
+        assert sorted(doc.f_int for doc in docs) == list(range(50))
+        assert len({doc._id for doc in docs}) == 50
+        assert all(doc._version is not None and doc._seq_no is not None for doc in docs)
+
+        # With query
+        docs = [doc async for doc in ScanModel.scan({'range': {'f_int': {'gte': 20}}}, batch_size=7)]
+        assert sorted(doc.f_int for doc in docs) == list(range(20, 50))
+
+        # Sort by a field which is not unique, the tiebreaker must not lose documents
+        docs = [doc async for doc in ScanModel.scan(sort='f_group', batch_size=7)]
+        assert sorted(doc.f_int for doc in docs) == list(range(50))
+        assert [doc.f_group for doc in docs] == sorted(doc.f_group for doc in docs)
+
+        # Sort by a unique field
+        docs = [doc async for doc in ScanModel.scan(sort=[{'f_int': {'order': 'desc'}}], batch_size=7)]
+        assert [doc.f_int for doc in docs] == list(range(49, -1, -1))
+
+        # Sort decorator
+        sort = esorm.Sort(sort=[{'f_int': {'order': 'desc'}}])
+        docs = [doc async for doc in sort(ScanModel).scan(batch_size=7)]
+        assert [doc.f_int for doc in docs] == list(range(49, -1, -1))
+
+        # Source filtering
+        docs = [doc async for doc in ScanModel.scan(sort='f_int', batch_size=20, _source=['f_int', 'f_group'])]
+        assert [doc.f_int for doc in docs] == list(range(50))
+
+        # Batches
+        batches = [batch async for batch in ScanModel.scan_batches(sort='f_int', batch_size=7)]
+        assert [len(batch) for batch in batches] == [7] * 7 + [1]
+        assert [doc.f_int for batch in batches for doc in batch] == list(range(50))
+
+        # Empty result
+        assert [doc async for doc in ScanModel.scan({'term': {'f_int': 1000}})] == []
+
+        # Changes made during the iteration are not visible
+        docs = []
+        async for doc in ScanModel.scan(sort='f_int', batch_size=10):
+            if doc.f_int == 0:
+                await ScanModel(f_int=1000, f_group=0).save(refresh=True)
+            docs.append(doc)
+        assert [doc.f_int for doc in docs] == list(range(50))
+        assert await ScanModel.count() == 51
+
+        # The point in time is closed when the iteration is stopped early
+        closed = []
+        close_point_in_time = es.close_point_in_time
+
+        async def close_point_in_time_spy(**kwargs):
+            closed.append(kwargs['id'])
+            return await close_point_in_time(**kwargs)
+
+        monkeypatch.setattr(es, 'close_point_in_time', close_point_in_time_spy)
+        async with aclosing(ScanModel.scan(batch_size=7)) as it:
+            async for _ in it:
+                break
+        assert len(closed) == 1
+
     async def test_subfields(self, es, esorm):
         """
         Test subfields functionality
