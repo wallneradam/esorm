@@ -2,7 +2,6 @@ from typing import List, Optional
 
 import sys
 import os
-import asyncio
 import subprocess
 import importlib
 
@@ -20,16 +19,6 @@ disable_loggers = ['elastic_transport.node_pool', 'elastic_transport.transport',
 def pytest_configure():
     for logger_name in disable_loggers:
         logging.getLogger(logger_name).disabled = True
-
-
-@pytest.fixture(scope="class")
-def event_loop():
-    """
-    Use asyncio event loop in class scope
-    """
-    loop = asyncio.new_event_loop()
-    yield loop
-    loop.close()
 
 
 #
