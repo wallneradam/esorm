@@ -329,7 +329,7 @@ class ESModel(ESBaseModel):
 
     @classmethod
     async def call(cls: Type[TModel], method_name, *, index: Optional[str] = None,
-                   **kwargs) -> dict | ESResponse:
+                   **kwargs) -> Union[dict, ESResponse]:
         """
         Call an elasticsearch method
 
@@ -482,7 +482,7 @@ class ESModel(ESBaseModel):
         setattr(self, '_seq_no', _seq_no)
 
     @classmethod
-    def from_es(cls: Type[TModel], data: Dict[str, Any] | Hit) -> Optional[TModel]:
+    def from_es(cls: Type[TModel], data: Union[Dict[str, Any], Hit]) -> Optional[TModel]:
         """
         Returns an ESModel from an elasticsearch document that has _id, _source
 
@@ -1382,6 +1382,22 @@ async def setup_mappings(*_, debug=False):
                 res["search_analyzer"] = extra["search_analyzer"]
             properties[name] = res
 
+    # noinspection PyShadowingNames
+    def has_dense_vector(properties: dict) -> bool:
+        """ Check if there is a dense_vector field in the mapping (recursively) """
+        return any(v.get('type') == 'dense_vector' or has_dense_vector(v.get('properties', {}))
+                   for v in properties.values())
+
+    # noinspection PyShadowingNames
+    def has_setting(settings: dict, key: str) -> bool:
+        """ Check if a setting is specified either in flat ('a.b.c') or in nested form """
+        return any(k == key or k.endswith('.' + key) or (isinstance(v, dict) and has_setting(v, key))
+                   for k, v in settings.items())
+
+    # ES 9.2+ excludes vectors from _source by default, which would break loading models with vectors
+    es_major, es_minor = map(int, (await get_es_version()).split('.')[:2])
+    exclude_source_vectors_supported = (es_major, es_minor) >= (9, 2)
+
     # Process all models and create mappings
     for index, model in _ESModelMeta.__models__.items():
         
@@ -1409,9 +1425,13 @@ async def setup_mappings(*_, debug=False):
             elasticsearch) and elasticsearch.BadRequestError) or elasticsearch.exceptions.RequestError
         try:
             if not index_exists:
+                settings = model.ESConfig.settings
+                if (exclude_source_vectors_supported and has_dense_vector(properties)
+                        and not has_setting(settings or {}, 'exclude_source_vectors')):
+                    settings = {**(settings or {}), 'index.mapping.exclude_source_vectors': False}
                 await es.indices.create(index=index,
                                         mappings={'properties': properties},
-                                        settings=model.ESConfig.settings,
+                                        settings=settings,
                                         request_timeout=90)
             else:
                 try:

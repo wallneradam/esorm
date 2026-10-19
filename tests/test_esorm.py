@@ -1,10 +1,14 @@
 import asyncio
 from typing import TYPE_CHECKING
+import os
 import sys
 import pytest
 
+# ES services (from docker-compose.yml) to test against, can be limited by e.g. `ESORM_TEST_SERVICES=es8x,es9x`
+services = os.environ.get('ESORM_TEST_SERVICES', 'es7x,es8x,es9x').split(',')
 
-@pytest.mark.parametrize('service', ['es7x', 'es8x', 'es9x'], scope='class')
+
+@pytest.mark.parametrize('service', services, scope='class')
 class TestBaseTests:
     """
     Base tests

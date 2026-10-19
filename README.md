@@ -2,6 +2,8 @@
 
 # ESORM - Python ElasticSearch ORM based on Pydantic
 
+[![Tests](https://github.com/wallneradam/esorm/actions/workflows/tests.yml/badge.svg)](https://github.com/wallneradam/esorm/actions/workflows/tests.yml)
+
 ESORM is an ElasticSearch Object Relational Mapper or Object Document Mapper (ODM) if you like,
  for Python based on Pydantic. It is a high-level library for managing ElasticSearch documents
  in Python. It is fully async and uses annotations and type hints for type checking and IDE autocompletion.
@@ -82,7 +84,7 @@ pip install pyesorm
 - Docstring support for fields
 - Shard routing support
 - Lazy properties
-- Support >= Python 3.8 (tested with 3.8 through 3.13)
+- Support >= Python 3.8 (tested with 3.8 through 3.14)
 - Support for ElasticSearch 9.x, 8.x and 7.x
 - Watcher support (You may need ElasticSearch subscription license for this)
 - Pagination and sorting
@@ -98,7 +100,7 @@ It is tested with ElasticSearch 7.x, 8.x and 9.x.
 <a id="supported-python-versions"></a>
 ### Supported Python versions
 
-Tested with Python 3.8 through 3.13.
+Tested with Python 3.8 through 3.14.
 
 <a id="usage"></a>
 ## 📖 Usage
@@ -324,6 +326,11 @@ class Document(ESModel):
         similarity="cosine"  # similarity metric: 'cosine', 'dot_product', or 'l2'
     )
 ```
+
+ElasticSearch 9.2+ excludes vectors from `_source` by default, so they would be missing from the loaded models.
+To keep the models complete, ESORM creates indices with dense vector fields with
+`index.mapping.exclude_source_vectors: false`, unless you set `exclude_source_vectors` explicitly
+in `ESConfig.settings`.
 
 <a id="nested-documents"></a>
 #### Nested documents
@@ -1171,11 +1178,16 @@ which is not too good with ESORM's Union types.
 <a id="testing"></a>
 ## 🧪 Testing
 
-For testing you can use the `test.sh` in the root directory. It is a script to running
+Tests run automatically on GitHub Actions for every push and pull request, on all supported
+Python versions (3.8 - 3.14) against ElasticSearch 7.x, 8.x and 9.x.
+
+For local testing you can use the `tests.sh` in the root directory. It is a script to running
 tests on multiple python interpreters in virtual environments. At the top of the file you can specify
 which python interpreters you want to test. The ES versions are specified in `tests/docker-compose.yml` file.
 
-If you already have a virtual environment, simply use `pytest` to run the tests.
+If you already have a virtual environment, simply use `pytest` to run the tests. Docker is needed, the tests
+start the ES containers automatically. By default all ES versions are tested, you can limit them with the
+`ESORM_TEST_SERVICES` environment variable, e.g. `ESORM_TEST_SERVICES=es8x,es9x pytest`.
 
 <a id="license"></a>
 ## 🛡 License

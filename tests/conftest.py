@@ -27,7 +27,7 @@ def event_loop():
     """
     Use asyncio event loop in class scope
     """
-    loop = asyncio.get_event_loop()
+    loop = asyncio.new_event_loop()
     yield loop
     loop.close()
 
