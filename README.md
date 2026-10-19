@@ -84,7 +84,7 @@ pip install pyesorm
 - Docstring support for fields
 - Shard routing support
 - Lazy properties
-- Support >= Python 3.8 (tested with 3.8 through 3.14)
+- Support >= Python 3.10 (tested with 3.10 through 3.14)
 - Support for ElasticSearch 9.x, 8.x and 7.x
 - Watcher support (You may need ElasticSearch subscription license for this)
 - Pagination and sorting
@@ -100,7 +100,7 @@ It is tested with ElasticSearch 7.x, 8.x and 9.x.
 <a id="supported-python-versions"></a>
 ### Supported Python versions
 
-Tested with Python 3.8 through 3.14.
+Tested with Python 3.10 through 3.14.
 
 <a id="usage"></a>
 ## 📖 Usage
@@ -1179,7 +1179,7 @@ which is not too good with ESORM's Union types.
 ## 🧪 Testing
 
 Tests run automatically on GitHub Actions for every push and pull request, on all supported
-Python versions (3.8 - 3.14) against ElasticSearch 7.x, 8.x and 9.x.
+Python versions (3.10 - 3.14) against ElasticSearch 7.x, 8.x and 9.x.
 
 For local testing you can use the `tests.sh` in the root directory. It is a script to running
 tests on multiple python interpreters in virtual environments. At the top of the file you can specify

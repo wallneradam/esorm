@@ -171,24 +171,21 @@ def model_es_optional_new_syntax(esorm):
     Model to test optional ES types with new syntax
     """
 
-    if sys.version_info >= (3, 10):
-        class ESOptionalFieldNewSyntaxModel(esorm.ESModel):
-            f_keyword: esorm.fields.keyword | None = None
-            f_text: esorm.fields.text | None = None
-            f_binary: esorm.fields.binary | None = esorm.Field(None, index=False)
-            f_byte: esorm.fields.byte | None = None
-            f_short: esorm.fields.short | None = None
-            f_int32: esorm.fields.int32 | None = None
-            f_long: esorm.fields.long | None = None
-            f_unsigned_long: esorm.fields.unsigned_long | None = None
-            f_float16: esorm.fields.float16 | None = None
-            f_float32: esorm.fields.float32 | None = None
-            f_double: esorm.fields.double | None = None
-            f_geo_point: esorm.fields.geo_point | None = None
+    class ESOptionalFieldNewSyntaxModel(esorm.ESModel):
+        f_keyword: esorm.fields.keyword | None = None
+        f_text: esorm.fields.text | None = None
+        f_binary: esorm.fields.binary | None = esorm.Field(None, index=False)
+        f_byte: esorm.fields.byte | None = None
+        f_short: esorm.fields.short | None = None
+        f_int32: esorm.fields.int32 | None = None
+        f_long: esorm.fields.long | None = None
+        f_unsigned_long: esorm.fields.unsigned_long | None = None
+        f_float16: esorm.fields.float16 | None = None
+        f_float32: esorm.fields.float32 | None = None
+        f_double: esorm.fields.double | None = None
+        f_geo_point: esorm.fields.geo_point | None = None
 
-        return ESOptionalFieldNewSyntaxModel
-
-    return None
+    return ESOptionalFieldNewSyntaxModel
 
 
 # noinspection PyUnresolvedReferences
