@@ -74,6 +74,14 @@ esorm.model module
    :undoc-members:
    :show-inheritance:
 
+esorm.opensearch module
+^^^^^^^^^^^^^^^^^^^^^^^
+
+.. automodule:: esorm.opensearch
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 esorm.query module
 ^^^^^^^^^^^^^^^^^^
 

@@ -4,8 +4,9 @@ import os
 import sys
 import pytest
 
-# ES services (from docker-compose.yml) to test against, can be limited by e.g. `ESORM_TEST_SERVICES=es8x,es9x`
-services = os.environ.get('ESORM_TEST_SERVICES', 'es8x,es9x').split(',')
+# ES and OpenSearch services (from docker-compose.yml) to test against, can be limited by
+# e.g. `ESORM_TEST_SERVICES=es8x,es9x`
+services = os.environ.get('ESORM_TEST_SERVICES', 'es8x,es9x,os2x,os3x').split(',')
 
 
 @pytest.mark.parametrize('service', services, scope='class')
@@ -1191,7 +1192,8 @@ class TestBaseTests:
         from esorm.fields import dense_vector
 
         class DenseVectorModel(esorm.ESModel):
-            f_dense_vector: dense_vector
+            # OpenSearch needs the dimensions, ElasticSearch can detect it from the 1st document
+            f_dense_vector: dense_vector = esorm.DenseVectorField(..., dims=3) if esorm.is_opensearch() else ...
 
         await esorm.setup_mappings()
 
@@ -1204,7 +1206,7 @@ class TestBaseTests:
         doc = await DenseVectorModel.get(doc_id)
         assert doc.f_dense_vector == [1.0, 2.0, 3.0]
 
-        # Perform a kNN search (only supported in ES8.x)
+        # Perform a kNN search
         query = {
             "knn": {
                 "field": "f_dense_vector",
@@ -1431,3 +1433,53 @@ class TestBaseTests:
         # Documents should be visible after refresh
         results = await RefreshTestModel.search_by_fields({'f_str': 'test_bulk_wait_for'})
         assert len(results) == 3
+
+    async def test_client_api(self, es):
+        """
+        Test the client API with the keyword arguments of the elasticsearch client, which should work with both
+        ElasticSearch and OpenSearch
+        """
+        from elasticsearch import NotFoundError, ConflictError, BadRequestError
+
+        index = 'esorm_client_api'
+        await es.indices.create(index=index, mappings={'properties': {
+            'f_str': {'type': 'keyword'},
+            'f_int': {'type': 'long'},
+            'f_vector': {'type': 'dense_vector', 'dims': 2, 'similarity': 'l2_norm'},
+        }}, settings={'number_of_shards': 1})
+        await es.indices.put_mapping(index=index, properties={'f_new': {'type': 'keyword'}})
+        await es.indices.put_settings(index=index, settings={'refresh_interval': '2s'})
+
+        for i in range(5):
+            await es.index(index=index, id=str(i), document={'f_str': f'doc{i}', 'f_int': i, 'f_vector': [i, i]})
+        await es.update(index=index, id='0', doc={'f_new': 'updated'})
+        await es.indices.refresh(index=index)
+
+        res = await es.get(index=index, id='0')
+        assert res['_source']['f_new'] == 'updated'
+
+        res = await es.search(index=index, query={'range': {'f_int': {'gte': 1}}}, sort=[{'f_int': 'desc'}],
+                              from_=1, size=2, source=['f_int'])
+        assert res['hits']['total']['value'] == 4
+        assert [hit['_source'] for hit in res['hits']['hits']] == [{'f_int': 3}, {'f_int': 2}]
+
+        res = await es.search(index=index, knn={'field': 'f_vector', 'query_vector': [4.0, 4.0], 'k': 1,
+                                                'num_candidates': 10}, size=1)
+        assert res['hits']['hits'][0]['_id'] == '4'
+
+        res = await es.count(index=index, query={'term': {'f_str': 'doc1'}})
+        assert res['count'] == 1
+
+        res = await es.delete_by_query(index=index, query={'term': {'f_str': 'doc1'}}, refresh=True)
+        assert res['deleted'] == 1
+
+        # The exceptions of the elasticsearch client should be raised
+        with pytest.raises(NotFoundError):
+            await es.get(index=index, id='1')
+        with pytest.raises(ConflictError):
+            await es.create(index=index, id='0', document={'f_str': 'conflict'})
+        with pytest.raises(BadRequestError):
+            await es.search(index=index, query={'invalid_query': {}})
+
+        assert await es.ping()
+        await es.indices.delete(index=index)

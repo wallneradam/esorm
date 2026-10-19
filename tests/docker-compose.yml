@@ -39,3 +39,37 @@ services:
       - esorm
     ports:
       - "127.0.0.1:9200:9200"
+
+  os3x:
+    container_name: os3x
+    hostname: os3
+    image: opensearchproject/opensearch:3.9.0
+    environment:
+      - discovery.type=single-node
+      - logger.level=ERROR
+      - node.name=os
+      - DISABLE_SECURITY_PLUGIN=true
+      - DISABLE_INSTALL_DEMO_CONFIG=true
+      - cluster.routing.allocation.disk.threshold_enabled=false
+      - "OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m"
+    networks:
+      - esorm
+    ports:
+      - "127.0.0.1:9200:9200"
+
+  os2x:
+    container_name: os2x
+    hostname: os2
+    image: opensearchproject/opensearch:2.19.6
+    environment:
+      - discovery.type=single-node
+      - logger.level=ERROR
+      - node.name=os
+      - DISABLE_SECURITY_PLUGIN=true
+      - DISABLE_INSTALL_DEMO_CONFIG=true
+      - cluster.routing.allocation.disk.threshold_enabled=false
+      - "OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m"
+    networks:
+      - esorm
+    ports:
+      - "127.0.0.1:9200:9200"

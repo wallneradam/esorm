@@ -7,7 +7,7 @@ import json
 
 from .logger import logger
 from .query import ESQuery
-from .esorm import es
+from .esorm import es, is_opensearch
 
 
 class WatcherMeta(type):
@@ -205,7 +205,10 @@ async def setup_watchers(*_, debug=False):
     Setup watchers
     :param _: Unused
     :param debug: Whether to print the watcher definition
+    :raises NotImplementedError: If connected to OpenSearch, which has no Watcher
     """
+    if WatcherMeta.__watchers__ and is_opensearch():
+        raise NotImplementedError("Watchers are not supported with OpenSearch!")
     for WatcherClass in WatcherMeta.__watchers__:
         watcher = WatcherClass()
         if debug:

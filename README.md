@@ -1,18 +1,20 @@
 <img src="https://raw.githubusercontent.com/wallneradam/esorm/main/docs/_static/img/esorm.svg" width="110" height="110" align="left" style="margin-right: 1em; margin-bottom: 0.5em" alt="Logo"/>
 
-# ESORM - Python ElasticSearch ORM based on Pydantic
+# ESORM - Python ElasticSearch and OpenSearch ORM based on Pydantic
 
 [![Tests](https://github.com/wallneradam/esorm/actions/workflows/tests.yml/badge.svg)](https://github.com/wallneradam/esorm/actions/workflows/tests.yml)
 
 ESORM is an ElasticSearch Object Relational Mapper or Object Document Mapper (ODM) if you like,
  for Python based on Pydantic. It is a high-level library for managing ElasticSearch documents
  in Python. It is fully async and uses annotations and type hints for type checking and IDE autocompletion.
+ It works with OpenSearch too.
 
 ## ☰ Table of Contents
 
 - [💾 Installation](#installation)
 - [🚀 Features](#features)
     - [Supported ElasticSearch versions](#supported-elasticsearch-versions)
+    - [Supported OpenSearch versions](#supported-opensearch-versions)
     - [Supported Python versions](#supported-python-versions)
 - [📖 Usage](#usage)
     - [Define a model](#define-a-model)
@@ -30,6 +32,7 @@ ESORM is an ElasticSearch Object Relational Mapper or Object Document Mapper (OD
         - [Describe fields](#describe-fields)
         - [ESModelTimestamp](#esmodeltimestamp)
     - [Connecting to ElasticSearch](#connecting-to-elasticsearch)
+        - [Connecting to OpenSearch](#connecting-to-opensearch)
         - [Client](#client)
     - [Create index templates](#create-index-templates)
     - [Create indices and mappings](#create-indices-and-mappings)
@@ -66,6 +69,12 @@ ESORM is an ElasticSearch Object Relational Mapper or Object Document Mapper (OD
 pip install pyesorm
 ```
 
+For OpenSearch support install it with the `opensearch` extra:
+
+```bash
+pip install pyesorm[opensearch]
+```
+
 <a id="features"></a>
 ## 🚀 Features
 
@@ -86,6 +95,7 @@ pip install pyesorm
 - Lazy properties
 - Support >= Python 3.10 (tested with 3.10 through 3.14)
 - Support for ElasticSearch 9.x and 8.x
+- Support for OpenSearch 3.x and 2.x
 - Watcher support (You may need ElasticSearch subscription license for this)
 - Pagination and sorting
 - FastAPI integration
@@ -100,6 +110,28 @@ It is tested with ElasticSearch 8.x and 9.x. ElasticSearch 7.x is supported by E
 ESORM uses the official `elasticsearch` 9.x Python client. The client asks the server for API compatibility
 with its own major version, which ElasticSearch 8.x rejects, so ESORM detects the server version
 and lowers the requested compatibility version to it automatically.
+
+<a id="supported-opensearch-versions"></a>
+### Supported OpenSearch versions
+
+It is tested with OpenSearch 2.19 and 3.x.
+
+OpenSearch is supported through the official `opensearch-py` client, which is installed with the `opensearch`
+extra (`pip install pyesorm[opensearch]`). If it is installed, `connect` detects the type of the server
+automatically, see [Connecting to OpenSearch](#connecting-to-opensearch).
+
+ESORM wraps the `opensearch-py` client, so the same code works with both servers:
+
+- The most common API methods (`index`, `create`, `update`, `bulk`, `mget`, `search`, `msearch`, `count`,
+  `delete_by_query`, `update_by_query`, `indices.create`, `indices.put_mapping`, `indices.put_settings`,
+  `indices.put_index_template`) accept the keyword arguments of the `elasticsearch` client (e.g. `query`, `sort`,
+  `document`, `operations`, `mappings`), other methods should be called as in `opensearch-py`.
+- `dense_vector` fields are mapped to `knn_vector` fields, and ElasticSearch `knn` queries are converted to
+  OpenSearch `knn` queries.
+- The exceptions of the `elasticsearch` client are raised (e.g. `elasticsearch.NotFoundError`,
+  `elasticsearch.ConflictError`), so you can handle errors the same way.
+
+Watchers are not supported with OpenSearch.
 
 <a id="supported-python-versions"></a>
 ### Supported Python versions
@@ -335,6 +367,12 @@ ElasticSearch 9.2+ excludes vectors from `_source` by default, so they would be 
 To keep the models complete, ESORM creates indices with dense vector fields with
 `index.mapping.exclude_source_vectors: false`, unless you set `exclude_source_vectors` explicitly
 in `ESConfig.settings`.
+
+With OpenSearch, `dense_vector` fields are mapped to `knn_vector` fields (`dims` → `dimension`,
+`similarity` → `space_type`) and `index.knn: true` is set on the index. Here `dims` is required, because
+OpenSearch can't detect it from the documents. OpenSearch 3.x+ derives the vectors in `_source` from the index
+(normalized for cosine similarity), so ESORM creates the indices with `index.knn.derived_source.enabled: false`,
+unless you set it explicitly in `ESConfig.settings`.
 
 <a id="nested-documents"></a>
 #### Nested documents
@@ -610,6 +648,36 @@ from esorm import connect
 
 async def es_init():
     await connect('localhost:9200', wait=True, sniff_on_start=True, sniff_on_connection_fail=True)
+```
+
+<a id="connecting-to-opensearch"></a>
+#### Connecting to OpenSearch
+
+If the `opensearch-py` package is installed (`pip install pyesorm[opensearch]`), `connect` detects
+automatically whether the server is ElasticSearch or OpenSearch. In this case use the arguments of
+`AsyncElasticsearch`, the most common ones (`basic_auth`, `request_timeout`) are converted for OpenSearch:
+
+```python
+from esorm import connect, is_opensearch
+
+
+async def es_init():
+    await connect('http://localhost:9200', wait=True, basic_auth=('user', 'password'))
+    print(is_opensearch())
+```
+
+If you need OpenSearch specific arguments (e.g. AWS authentication), specify the backend explicitly,
+then all arguments are passed to `AsyncOpenSearch` as they are:
+
+```python
+from opensearchpy import AWSV4SignerAsyncAuth, AsyncHttpConnection
+from esorm import connect
+
+
+async def es_init(credentials):
+    await connect('https://my-domain.eu-central-1.es.amazonaws.com', backend='opensearch',
+                  http_auth=AWSV4SignerAsyncAuth(credentials, 'eu-central-1', 'es'),
+                  connection_class=AsyncHttpConnection)
 ```
 
 <a id="client"></a>
@@ -1183,15 +1251,17 @@ which is not too good with ESORM's Union types.
 ## 🧪 Testing
 
 Tests run automatically on GitHub Actions for every push and pull request, on all supported
-Python versions (3.10 - 3.14) against ElasticSearch 8.x and 9.x.
+Python versions (3.10 - 3.14) against ElasticSearch 8.x, 9.x and OpenSearch 2.x, 3.x.
 
 For local testing you can use the `tests.sh` in the root directory. It is a script to running
 tests on multiple python interpreters in virtual environments. At the top of the file you can specify
-which python interpreters you want to test. The ES versions are specified in `tests/docker-compose.yml` file.
+which python interpreters you want to test. The ES and OpenSearch versions are specified in
+`tests/docker-compose.yml` file.
 
 If you already have a virtual environment, simply use `pytest` to run the tests. Docker is needed, the tests
-start the ES containers automatically. By default all ES versions are tested, you can limit them with the
-`ESORM_TEST_SERVICES` environment variable, e.g. `ESORM_TEST_SERVICES=es8x,es9x pytest`.
+start the ES and OpenSearch containers automatically. By default all versions are tested, you can limit them with
+the `ESORM_TEST_SERVICES` environment variable, e.g. `ESORM_TEST_SERVICES=es9x,os3x pytest`
+(available services: `es8x`, `es9x`, `os2x`, `os3x`).
 
 <a id="license"></a>
 ## 🛡 License
