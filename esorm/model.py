@@ -849,16 +849,25 @@ class ESModel(ESBaseModel):
         `break`), use `contextlib.aclosing()` to close it immediately, not only when the iterator is garbage
         collected.
 
+        Example::
+
+            async for users in User.scan_batches({'range': {'age': {'gte': 18}}}, batch_size=500):
+                async with ESBulk() as bulk:
+                    for user in users:
+                        user.adult = True
+                        await bulk.save(user)
+
         :param query: ElasticSearch query dict, if not set, all documents are returned
         :param batch_size: The number of documents to fetch in one request
         :param sort: Name of field to be sorted, or sort term list of dict, if not specified, model's default sort
                      will be used, or the index order, which is the most efficient
-        :param keep_alive: How long the point in time is kept alive between two requests
+        :param keep_alive: How long the point in time is kept alive between two requests, increase it if
+                           processing a batch takes longer
         :param routing: Shard routing value
         :param index: Index name, if not set, it will use the index from ESConfig
         :param _source: Fields to return, if not set, it will return all fields
         :param kwargs: Other search API params
-        :return: Async iterator of result lists
+        :return: Async iterator of result lists, each list has maximum `batch_size` models
         """
         if isinstance(sort, str):
             sort = [{sort: {'order': 'asc'}}]
@@ -918,11 +927,23 @@ class ESModel(ESBaseModel):
 
         It fetches the documents in batches, see :meth:`scan_batches` for details.
 
+        Example::
+
+            async for user in User.scan({'range': {'age': {'gte': 18}}}):
+                print(user.name)
+
+            # Close the point in time immediately if the iteration is stopped early
+            async with contextlib.aclosing(User.scan(sort='name')) as users:
+                async for user in users:
+                    if user.name == 'admin':
+                        break
+
         :param query: ElasticSearch query dict, if not set, all documents are returned
         :param batch_size: The number of documents to fetch in one request
         :param sort: Name of field to be sorted, or sort term list of dict, if not specified, model's default sort
                      will be used, or the index order, which is the most efficient
-        :param keep_alive: How long the point in time is kept alive between two requests
+        :param keep_alive: How long the point in time is kept alive between two requests, increase it if
+                           processing a batch takes longer
         :param routing: Shard routing value
         :param index: Index name, if not set, it will use the index from ESConfig
         :param _source: Fields to return, if not set, it will return all fields
