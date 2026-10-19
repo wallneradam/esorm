@@ -97,6 +97,10 @@ Not all ElasticSearch features are supported yet, pull requests are welcome.
 
 It is tested with ElasticSearch 8.x and 9.x. ElasticSearch 7.x is supported by ESORM 0.7.x.
 
+ESORM uses the official `elasticsearch` 9.x Python client. The client asks the server for API compatibility
+with its own major version, which ElasticSearch 8.x rejects, so ESORM detects the server version
+and lowers the requested compatibility version to it automatically.
+
 <a id="supported-python-versions"></a>
 ### Supported Python versions
 
