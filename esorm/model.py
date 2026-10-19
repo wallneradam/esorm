@@ -1178,39 +1178,18 @@ async def create_index_template(name: str,
     :param other_settings: Other settings
     :return: The result object from ES
     """
-    es_version = await get_es_version()
-    major, minor, _ = map(int, es_version.split('.'))
-
-    if major > 7 or (major == 7 and minor >= 8):
-        # Use composable template for ES 7.8 and above
-        return await es.indices.put_index_template(
-            name=name,
-            body={
-                "index_patterns": [f'{prefix_name}*'],
-                "template": {
-                    "settings": {
-                        "number_of_shards": shards,
-                        "number_of_replicas": replicas,
-                        **other_settings
-                    }
-                }
-            },
-            request_timeout=90
-        )
-    else:
-        # Use legacy template for ES versions below 7.8
-        return await es.indices.put_template(
-            name=name,
-            body={
-                "index_patterns": [f'{prefix_name}*'],
-                "settings": {
-                    "number_of_shards": shards,
-                    "number_of_replicas": replicas,
-                    **other_settings
-                }
-            },
-            request_timeout=90
-        )
+    return await es.indices.put_index_template(
+        name=name,
+        index_patterns=[f'{prefix_name}*'],
+        template={
+            "settings": {
+                "number_of_shards": shards,
+                "number_of_replicas": replicas,
+                **other_settings
+            }
+        },
+        request_timeout=90
+    )
 
 
 async def setup_mappings(*_, debug=False):
@@ -1420,9 +1399,6 @@ async def setup_mappings(*_, debug=False):
             logger.debug(
                 f"`{index}` mappings:\n {pformat(properties, indent=2, width=100, compact=False, sort_dicts=False)}")
 
-        # noinspection PyUnresolvedReferences,PyPep8Naming
-        BadRequestError = ("BadRequestError" in dir(
-            elasticsearch) and elasticsearch.BadRequestError) or elasticsearch.exceptions.RequestError
         try:
             if not index_exists:
                 settings = model.ESConfig.settings
@@ -1434,9 +1410,6 @@ async def setup_mappings(*_, debug=False):
                                         settings=settings,
                                         request_timeout=90)
             else:
-                try:
-                    await es.indices.put_mapping(index=index, properties=properties, request_timeout=90)
-                except TypeError:  # ES v7.x
-                    await es.indices.put_mapping(index=index, body={'properties': properties}, request_timeout=90)
-        except BadRequestError:
+                await es.indices.put_mapping(index=index, properties=properties, request_timeout=90)
+        except elasticsearch.BadRequestError:
             logger.warning(f"Index mappings error:\n{traceback.format_exc(limit=5)}")

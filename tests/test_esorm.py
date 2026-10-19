@@ -5,7 +5,7 @@ import sys
 import pytest
 
 # ES services (from docker-compose.yml) to test against, can be limited by e.g. `ESORM_TEST_SERVICES=es8x,es9x`
-services = os.environ.get('ESORM_TEST_SERVICES', 'es7x,es8x,es9x').split(',')
+services = os.environ.get('ESORM_TEST_SERVICES', 'es8x,es9x').split(',')
 
 
 @pytest.mark.parametrize('service', services, scope='class')
@@ -1184,13 +1184,10 @@ class TestBaseTests:
         doc = await model_es.get(doc_id)
         assert doc.f_keyword == 'test'
 
-    async def test_dense_vector(self, es, esorm, service):
+    async def test_dense_vector(self, es, esorm):
         """
         Test Dense Vector feature
         """
-        if service == 'es7x':
-            pytest.skip("Dense Vector is not supported in ES 7.x")
-
         from esorm.fields import dense_vector
 
         class DenseVectorModel(esorm.ESModel):

@@ -53,7 +53,7 @@ async def esorm():
             del sys.modules[module_name]
 
 
-@pytest.fixture(scope="class")  # Test both ES 8.x and 7.x
+@pytest.fixture(scope="class")
 async def docker_es(service):
     compose_file = os.path.join(os.path.dirname(__file__), 'docker-compose.yml')
     res = subprocess.run(['docker', 'compose', '-f', compose_file, 'up', '-d', service], check=True)
@@ -74,9 +74,7 @@ async def es(docker_es, esorm, service):
 
     es_version = await esorm.get_es_version()
     major, _, _ = map(int, es_version.split('.'))
-    if service == 'es7x':
-        assert major == 7
-    elif service == 'es8x':
+    if service == 'es8x':
         assert major == 8
     elif service == 'es9x':
         assert major == 9
