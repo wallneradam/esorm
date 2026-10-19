@@ -1,0 +1,45 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Python ${{ matrix.python }} / ${{ matrix.service }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.10", "3.11", "3.12", "3.13", "3.14"]
+        service: [es8x, es9x]
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Install Python ${{ matrix.python }} and dependencies
+        run: |
+          uv venv --python ${{ matrix.python }} .venv
+          uv pip install --python .venv -e ".[dev]"
+
+      - name: Pull Elasticsearch image
+        run: docker compose -f tests/docker-compose.yml pull ${{ matrix.service }}
+
+      - name: Run tests
+        env:
+          ESORM_TEST_SERVICES: ${{ matrix.service }}
+        run: .venv/bin/pytest
+
+      - name: Clean up containers
+        if: always()
+        run: docker compose -f tests/docker-compose.yml down -v

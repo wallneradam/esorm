@@ -9,13 +9,14 @@ services:
   es9x:
     container_name: es9x
     hostname: es9
-    image: elasticsearch:9.1.5
+    image: elasticsearch:9.5.5
     environment:
       - discovery.type=single-node
       - logger.level=ERROR
       - node.name=es
       - xpack.security.enabled=false
       - ingest.geoip.downloader.enabled=false
+      - cluster.routing.allocation.disk.threshold_enabled=false
       - "ES_JAVA_OPTS=-Xms256m -Xmx256m"
     networks:
       - esorm
@@ -25,29 +26,14 @@ services:
   es8x:
     container_name: es8x
     hostname: es8
-    image: elasticsearch:8.18.8
+    image: elasticsearch:8.19.23
     environment:
       - discovery.type=single-node
       - logger.level=ERROR
       - node.name=es
       - xpack.security.enabled=false
       - ingest.geoip.downloader.enabled=false
-      - "ES_JAVA_OPTS=-Xms256m -Xmx256m"
-    networks:
-      - esorm
-    ports:
-      - "127.0.0.1:9200:9200"
-
-  es7x:
-    container_name: es7x
-    hostname: es7
-    image: elasticsearch:7.17.28
-    environment:
-      - discovery.type=single-node
-      - logger.level=ERROR
-      - node.name=es
-      - xpack.security.enabled=false
-      - ingest.geoip.downloader.enabled=false
+      - cluster.routing.allocation.disk.threshold_enabled=false
       - "ES_JAVA_OPTS=-Xms256m -Xmx256m"
     networks:
       - esorm

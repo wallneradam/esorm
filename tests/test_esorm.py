@@ -1,10 +1,14 @@
 import asyncio
 from typing import TYPE_CHECKING
+import os
 import sys
 import pytest
 
+# ES services (from docker-compose.yml) to test against, can be limited by e.g. `ESORM_TEST_SERVICES=es8x,es9x`
+services = os.environ.get('ESORM_TEST_SERVICES', 'es8x,es9x').split(',')
 
-@pytest.mark.parametrize('service', ['es7x', 'es8x', 'es9x'], scope='class')
+
+@pytest.mark.parametrize('service', services, scope='class')
 class TestBaseTests:
     """
     Base tests
@@ -57,7 +61,6 @@ class TestBaseTests:
         assert model_es_optional is not None
         assert model_es_optional.ESConfig.index == 'esorm_es_optional_field_model'
 
-    @pytest.mark.skipif(sys.version_info < (3, 10), reason="Requires Python 3.10 or higher")
     async def test_create_model_with_es_optional_fields_new_syntax(self, es, esorm, model_es_optional_new_syntax):
         """
         Test model with ES fields with new syntax
@@ -183,32 +186,31 @@ class TestBaseTests:
         assert mappings[model_es_optional.ESConfig.index]['mappings']['properties']['f_positive_int']['type'] == 'long'
 
         # Test optional new syntax
-        if sys.version_info >= (3, 10):
-            mappings = await es.indices.get_mapping(index=model_es_optional_new_syntax.ESConfig.index)
-            assert mappings[model_es_optional_new_syntax.ESConfig.index]['mappings']['properties']['f_keyword'][
-                       'type'] == 'keyword'
-            assert mappings[model_es_optional_new_syntax.ESConfig.index]['mappings']['properties']['f_text'][
-                       'type'] == 'text'
-            assert mappings[model_es_optional_new_syntax.ESConfig.index]['mappings']['properties']['f_binary'][
-                       'type'] == 'binary'
-            assert mappings[model_es_optional_new_syntax.ESConfig.index]['mappings']['properties']['f_byte'][
-                       'type'] == 'byte'
-            assert mappings[model_es_optional_new_syntax.ESConfig.index]['mappings']['properties']['f_short'][
-                       'type'] == 'short'
-            assert mappings[model_es_optional_new_syntax.ESConfig.index]['mappings']['properties']['f_int32'][
-                       'type'] == 'integer'
-            assert mappings[model_es_optional_new_syntax.ESConfig.index]['mappings']['properties']['f_long'][
-                       'type'] == 'long'
-            assert mappings[model_es_optional_new_syntax.ESConfig.index]['mappings']['properties']['f_unsigned_long'][
-                       'type'] == 'unsigned_long'
-            assert mappings[model_es_optional_new_syntax.ESConfig.index]['mappings']['properties']['f_float16'][
-                       'type'] == 'half_float'
-            assert mappings[model_es_optional_new_syntax.ESConfig.index]['mappings']['properties']['f_float32'][
-                       'type'] == 'float'
-            assert mappings[model_es_optional_new_syntax.ESConfig.index]['mappings']['properties']['f_double'][
-                       'type'] == 'double'
-            assert mappings[model_es_optional_new_syntax.ESConfig.index]['mappings']['properties']['f_geo_point'][
-                       'type'] == 'geo_point'
+        mappings = await es.indices.get_mapping(index=model_es_optional_new_syntax.ESConfig.index)
+        assert mappings[model_es_optional_new_syntax.ESConfig.index]['mappings']['properties']['f_keyword'][
+                   'type'] == 'keyword'
+        assert mappings[model_es_optional_new_syntax.ESConfig.index]['mappings']['properties']['f_text'][
+                   'type'] == 'text'
+        assert mappings[model_es_optional_new_syntax.ESConfig.index]['mappings']['properties']['f_binary'][
+                   'type'] == 'binary'
+        assert mappings[model_es_optional_new_syntax.ESConfig.index]['mappings']['properties']['f_byte'][
+                   'type'] == 'byte'
+        assert mappings[model_es_optional_new_syntax.ESConfig.index]['mappings']['properties']['f_short'][
+                   'type'] == 'short'
+        assert mappings[model_es_optional_new_syntax.ESConfig.index]['mappings']['properties']['f_int32'][
+                   'type'] == 'integer'
+        assert mappings[model_es_optional_new_syntax.ESConfig.index]['mappings']['properties']['f_long'][
+                   'type'] == 'long'
+        assert mappings[model_es_optional_new_syntax.ESConfig.index]['mappings']['properties']['f_unsigned_long'][
+                   'type'] == 'unsigned_long'
+        assert mappings[model_es_optional_new_syntax.ESConfig.index]['mappings']['properties']['f_float16'][
+                   'type'] == 'half_float'
+        assert mappings[model_es_optional_new_syntax.ESConfig.index]['mappings']['properties']['f_float32'][
+                   'type'] == 'float'
+        assert mappings[model_es_optional_new_syntax.ESConfig.index]['mappings']['properties']['f_double'][
+                   'type'] == 'double'
+        assert mappings[model_es_optional_new_syntax.ESConfig.index]['mappings']['properties']['f_geo_point'][
+                   'type'] == 'geo_point'
 
         # Check if mappings are correct for timestamp fields
         mappings = await es.indices.get_mapping(index=model_timestamp.ESConfig.index)
@@ -1063,7 +1065,6 @@ class TestBaseTests:
         assert doc.f_str_list == ['a', 'b', 'c']
         assert doc.f_unsigned_long == [4, 5, 6]
 
-    @pytest.mark.skipif(sys.version_info < (3, 10), reason="Requires Python 3.10 or higher")
     async def test_primitive_list_new_syntax(self, es, esorm):
         """
         Test primitive list new syntax
@@ -1183,13 +1184,10 @@ class TestBaseTests:
         doc = await model_es.get(doc_id)
         assert doc.f_keyword == 'test'
 
-    async def test_dense_vector(self, es, esorm, service):
+    async def test_dense_vector(self, es, esorm):
         """
         Test Dense Vector feature
         """
-        if service == 'es7x':
-            pytest.skip("Dense Vector is not supported in ES 7.x")
-
         from esorm.fields import dense_vector
 
         class DenseVectorModel(esorm.ESModel):
