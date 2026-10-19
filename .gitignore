@@ -173,6 +173,5 @@ cython_debug/
 .DS_Store
 
 # Claude Code
-CLAUDE.md
 .mcp.json
 MEMORY.md
