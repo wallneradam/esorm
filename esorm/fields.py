@@ -261,7 +261,7 @@ def Field(
         description: Optional[str] = None,
         exclude: Optional[bool] = None,
         frozen: bool = False,
-        **extra
+        **extra: Any
 ) -> Any: ...
 
 
@@ -280,7 +280,7 @@ def Field(
         description: Optional[str] = None,
         exclude: Optional[bool] = None,
         frozen: bool = False,
-        **extra
+        **extra: Any
 ) -> _T: ...
 
 
@@ -298,7 +298,7 @@ def Field(
         description: Optional[str] = None,
         exclude: Optional[bool] = None,
         frozen: bool = False,
-        **extra
+        **extra: Any
 ) -> Any:
     """
     Basic Field Info
@@ -349,7 +349,7 @@ def NumericField(
         description: Optional[str] = None,
         exclude: Optional[bool] = None,
         frozen: bool = False,
-        **extra
+        **extra: Any
 ) -> Any: ...
 
 
@@ -376,7 +376,7 @@ def NumericField(
         description: Optional[str] = None,
         exclude: Optional[bool] = None,
         frozen: bool = False,
-        **extra
+        **extra: Any
 ) -> _TNumber: ...
 
 
@@ -402,7 +402,7 @@ def NumericField(
         description: Optional[str] = None,
         exclude: Optional[bool] = None,
         frozen: bool = False,
-        **extra
+        **extra: Any
 ) -> Any:
     """
     Numeric Field Info
@@ -469,7 +469,7 @@ def TextField(
         description: Optional[str] = None,
         exclude: Optional[bool] = None,
         frozen: bool = False,
-        **extra
+        **extra: Any
 ) -> Any: ...
 
 
@@ -492,7 +492,7 @@ def TextField(
         description: Optional[str] = None,
         exclude: Optional[bool] = None,
         frozen: bool = False,
-        **extra
+        **extra: Any
 ) -> _TText: ...
 
 
@@ -514,7 +514,7 @@ def TextField(
         description: Optional[str] = None,
         exclude: Optional[bool] = None,
         frozen: bool = False,
-        **extra
+        **extra: Any
 ) -> Any:
     """
     Text Field Info
@@ -574,7 +574,7 @@ def DenseVectorField(
         description: Optional[str] = None,
         exclude: Optional[bool] = None,
         frozen: bool = False,
-        **extra
+        **extra: Any
 ) -> Any: ...
 
 
@@ -594,7 +594,7 @@ def DenseVectorField(
         description: Optional[str] = None,
         exclude: Optional[bool] = None,
         frozen: bool = False,
-        **extra
+        **extra: Any
 ) -> _TVector: ...
 
 
@@ -613,7 +613,7 @@ def DenseVectorField(
         description: Optional[str] = None,
         exclude: Optional[bool] = None,
         frozen: bool = False,
-        **extra
+        **extra: Any
 ) -> Any:
     """
     Dense Vector Field Info

@@ -1,7 +1,7 @@
 """
 Bulk operation for ElasticSearch
 """
-from typing import Union, Literal
+from typing import Any, Union, Literal
 
 from .error import BulkError, BulkOperationError
 from .utils import utcnow
@@ -15,7 +15,7 @@ class ESBulk:
     Bulk operation for ElasticSearch
     """
 
-    def __init__(self, wait_for=False, refresh: Union[bool, Literal["wait_for"]] = False, **bulk_kwargs):
+    def __init__(self, wait_for=False, refresh: Union[bool, Literal["wait_for"]] = False, **bulk_kwargs: Any):
         """
         Create a bulk context manager
 

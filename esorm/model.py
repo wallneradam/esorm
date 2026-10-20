@@ -33,7 +33,7 @@ from pathlib import Path
 from ipaddress import IPv4Address, IPv6Address
 
 from .utils import snake_case, utcnow
-from .aggs import ESAgg, ESAggsResponse
+from .aggs import ESAgg, ESNamedAggs, ESAggsResponse
 
 from .error import InvalidResponseError, NotFoundError, ConflictError as ESORMConflictError
 from .esorm import es, get_es_version, is_opensearch
@@ -141,7 +141,7 @@ def _patch_set_model_fields():
     """
     orig_set_model_fields = _model_construction.set_model_fields
 
-    def set_model_fields(model: Type[BaseModel], *args, **kwargs) -> None:
+    def set_model_fields(model: Type[BaseModel], *args, **kwargs: Any) -> None:
         orig_set_model_fields(model, *args, **kwargs)
         _description_from_docstring(model)
 
@@ -337,7 +337,7 @@ class ESModel(ESBaseModel):
 
     @classmethod
     async def call(cls: Type[TModel], method_name, *, index: Optional[str] = None,
-                   **kwargs) -> Union[dict, ESResponse]:
+                   **kwargs: Any) -> Union[dict, ESResponse]:
         """
         Call an elasticsearch method
 
@@ -414,7 +414,7 @@ class ESModel(ESBaseModel):
                     _exclude[k] = res
         return _exclude
 
-    def to_es(self, **kwargs) -> dict:
+    def to_es(self, **kwargs: Any) -> dict:
         """
         Generates a dictionary equivalent to what ElasticSearch returns in the '_source' property of a response.
 
@@ -589,7 +589,7 @@ class ESModel(ESBaseModel):
     # noinspection PyShadowingBuiltins
     @classmethod
     async def get(cls: Type[TModel], id: Union[str, int, float], *, routing: Optional[str] = None,
-                  index: Optional[str] = None, _source: Optional[Union[str, List[str]]] = None, **kwargs) -> TModel:
+                  index: Optional[str] = None, _source: Optional[Union[str, List[str]]] = None, **kwargs: Any) -> TModel:
         """
         Fetches document and returns ESModel instance populated with properties.
 
@@ -657,11 +657,11 @@ class ESModel(ESBaseModel):
                       *,
                       page_size: Optional[int] = None,
                       page: Optional[int] = None,
-                      sort: Optional[Union[list, str]] = None,
+                      sort: Optional[Union[List[Any], str]] = None,
                       routing: Optional[str] = None,
                       aggs: Optional[Mapping[str, ESAgg]] = None,
                       index: Optional[str] = None,
-                      **kwargs) -> ESResponse:
+                      **kwargs: Any) -> ESResponse:
         """
         Raw ES search method
 
@@ -697,47 +697,47 @@ class ESModel(ESBaseModel):
     async def search(cls: Type[TModel], query: ESQuery, *,
                      page_size: Optional[int] = None,
                      page: Optional[int] = None,
-                     sort: Optional[Union[list, str]] = None,
+                     sort: Optional[Union[List[Any], str]] = None,
                      routing: Optional[str] = None,
                      res_dict: Literal[False] = False,
                      index: Optional[str] = None,
                      _source: Optional[Union[str, List[str]]] = None,
-                     **kwargs) -> List[TModel]: ...
+                     **kwargs: Any) -> List[TModel]: ...
 
     @overload
     @classmethod
     async def search(cls: Type[TModel], query: ESQuery, *,
                      page_size: Optional[int] = None,
                      page: Optional[int] = None,
-                     sort: Optional[Union[list, str]] = None,
+                     sort: Optional[Union[List[Any], str]] = None,
                      routing: Optional[str] = None,
                      res_dict: Literal[True],
                      index: Optional[str] = None,
                      _source: Optional[Union[str, List[str]]] = None,
-                     **kwargs) -> Dict[str, TModel]: ...
+                     **kwargs: Any) -> Dict[str, TModel]: ...
 
     @overload
     @classmethod
     async def search(cls: Type[TModel], query: ESQuery, *,
                      page_size: Optional[int] = None,
                      page: Optional[int] = None,
-                     sort: Optional[Union[list, str]] = None,
+                     sort: Optional[Union[List[Any], str]] = None,
                      routing: Optional[str] = None,
                      res_dict: bool,
                      index: Optional[str] = None,
                      _source: Optional[Union[str, List[str]]] = None,
-                     **kwargs) -> Union[List[TModel], Dict[str, TModel]]: ...
+                     **kwargs: Any) -> Union[List[TModel], Dict[str, TModel]]: ...
 
     @classmethod
     async def search(cls: Type[TModel], query: ESQuery, *,
                      page_size: Optional[int] = None,
                      page: Optional[int] = None,
-                     sort: Optional[Union[list, str]] = None,
+                     sort: Optional[Union[List[Any], str]] = None,
                      routing: Optional[str] = None,
                      res_dict: bool = False,
                      index: Optional[str] = None,
                      _source: Optional[Union[str, List[str]]] = None,
-                     **kwargs) -> Union[List[TModel], Dict[str, TModel]]:
+                     **kwargs: Any) -> Union[List[TModel], Dict[str, TModel]]:
         """
         Search Model with query dict
 
@@ -768,7 +768,7 @@ class ESModel(ESBaseModel):
     async def search_one(cls: Type[TModel], query: ESQuery, *, routing: Optional[str] = None,
                          index: Optional[str] = None,
                          _source: Optional[Union[str, List[str]]] = None,
-                         **kwargs) -> Optional[TModel]:
+                         **kwargs: Any) -> Optional[TModel]:
         """
         Search Model and return the first result
 
@@ -810,13 +810,13 @@ class ESModel(ESBaseModel):
                                *,
                                page_size: Optional[int] = None,
                                page: Optional[int] = None,
-                               sort: Optional[Union[list, str]] = None,
+                               sort: Optional[Union[List[Any], str]] = None,
                                routing: Optional[str] = None,
                                aggs: Optional[Mapping[str, ESAgg]] = None,
                                res_dict: Literal[False] = False,
                                index: Optional[str] = None,
                                _source: Optional[Union[str, List[str]]] = None,
-                               **kwargs) -> List[TModel]: ...
+                               **kwargs: Any) -> List[TModel]: ...
 
     @overload
     @classmethod
@@ -825,13 +825,13 @@ class ESModel(ESBaseModel):
                                *,
                                page_size: Optional[int] = None,
                                page: Optional[int] = None,
-                               sort: Optional[Union[list, str]] = None,
+                               sort: Optional[Union[List[Any], str]] = None,
                                routing: Optional[str] = None,
                                aggs: Optional[Mapping[str, ESAgg]] = None,
                                res_dict: Literal[True],
                                index: Optional[str] = None,
                                _source: Optional[Union[str, List[str]]] = None,
-                               **kwargs) -> Dict[str, TModel]: ...
+                               **kwargs: Any) -> Dict[str, TModel]: ...
 
     @overload
     @classmethod
@@ -840,13 +840,13 @@ class ESModel(ESBaseModel):
                                *,
                                page_size: Optional[int] = None,
                                page: Optional[int] = None,
-                               sort: Optional[Union[list, str]] = None,
+                               sort: Optional[Union[List[Any], str]] = None,
                                routing: Optional[str] = None,
                                aggs: Optional[Mapping[str, ESAgg]] = None,
                                res_dict: bool,
                                index: Optional[str] = None,
                                _source: Optional[Union[str, List[str]]] = None,
-                               **kwargs) -> Union[List[TModel], Dict[str, TModel]]: ...
+                               **kwargs: Any) -> Union[List[TModel], Dict[str, TModel]]: ...
 
     @classmethod
     async def search_by_fields(cls: Type[TModel],
@@ -854,13 +854,13 @@ class ESModel(ESBaseModel):
                                *,
                                page_size: Optional[int] = None,
                                page: Optional[int] = None,
-                               sort: Optional[Union[list, str]] = None,
+                               sort: Optional[Union[List[Any], str]] = None,
                                routing: Optional[str] = None,
                                aggs: Optional[Mapping[str, ESAgg]] = None,
                                res_dict: bool = False,
                                index: Optional[str] = None,
                                _source: Optional[Union[str, List[str]]] = None,
-                               **kwargs) -> Union[List[TModel], Dict[str, TModel]]:
+                               **kwargs: Any) -> Union[List[TModel], Dict[str, TModel]]:
         """
         Search Model by fields as key-value pairs
 
@@ -888,7 +888,7 @@ class ESModel(ESBaseModel):
                                    aggs: Optional[Mapping[str, ESAgg]] = None,
                                    index: Optional[str] = None,
                                    _source: Optional[Union[str, List[str]]] = None,
-                                   **kwargs) -> Optional[TModel]:
+                                   **kwargs: Any) -> Optional[TModel]:
         """
         Search Model by fields as key-value pairs and return the first result
 
@@ -904,7 +904,7 @@ class ESModel(ESBaseModel):
         return await cls.search_one(query, routing=routing, aggs=aggs, index=index, _source=_source, **kwargs)
 
     @classmethod
-    async def all(cls: Type[TModel], index: Optional[str] = None, **kwargs) -> List[TModel]:
+    async def all(cls: Type[TModel], index: Optional[str] = None, **kwargs: Any) -> List[TModel]:
         """
         Get all documents
 
@@ -914,17 +914,45 @@ class ESModel(ESBaseModel):
         """
         return await cls.search({'match_all': {}}, index=index, **kwargs)
 
+    # PyCharm checks a dict literal argument only if the parameter is a TypedDict (not Optional), so it has its own
+    # overload
+    @overload
+    @classmethod
+    def scan_batches(cls: Type[TModel],
+                     query: ESQuery,
+                     *,
+                     batch_size: int = 1000,
+                     sort: Optional[Union[List[Any], str]] = None,
+                     keep_alive: str = '1m',
+                     routing: Optional[str] = None,
+                     index: Optional[str] = None,
+                     _source: Optional[Union[str, List[str]]] = None,
+                     **kwargs: Any) -> AsyncGenerator[List[TModel], None]: ...
+
+    @overload
+    @classmethod
+    def scan_batches(cls: Type[TModel],
+                     query: Optional[ESQuery] = None,
+                     *,
+                     batch_size: int = 1000,
+                     sort: Optional[Union[List[Any], str]] = None,
+                     keep_alive: str = '1m',
+                     routing: Optional[str] = None,
+                     index: Optional[str] = None,
+                     _source: Optional[Union[str, List[str]]] = None,
+                     **kwargs: Any) -> AsyncGenerator[List[TModel], None]: ...
+
     @classmethod
     async def scan_batches(cls: Type[TModel],
                            query: Optional[ESQuery] = None,
                            *,
                            batch_size: int = 1000,
-                           sort: Optional[Union[list, str]] = None,
+                           sort: Optional[Union[List[Any], str]] = None,
                            keep_alive: str = '1m',
                            routing: Optional[str] = None,
                            index: Optional[str] = None,
                            _source: Optional[Union[str, List[str]]] = None,
-                           **kwargs) -> AsyncGenerator[List[TModel], None]:
+                           **kwargs: Any) -> AsyncGenerator[List[TModel], None]:
         """
         Iterate through all results of a query in batches
 
@@ -999,17 +1027,45 @@ class ESModel(ESBaseModel):
             except Exception as e:  # It expires after keep_alive anyway
                 logger.warning(f"Failed to close point in time: {e}")
 
+    # PyCharm checks a dict literal argument only if the parameter is a TypedDict (not Optional), so it has its own
+    # overload
+    @overload
+    @classmethod
+    def scan(cls: Type[TModel],
+             query: ESQuery,
+             *,
+             batch_size: int = 1000,
+             sort: Optional[Union[List[Any], str]] = None,
+             keep_alive: str = '1m',
+             routing: Optional[str] = None,
+             index: Optional[str] = None,
+             _source: Optional[Union[str, List[str]]] = None,
+             **kwargs: Any) -> AsyncGenerator[TModel, None]: ...
+
+    @overload
+    @classmethod
+    def scan(cls: Type[TModel],
+             query: Optional[ESQuery] = None,
+             *,
+             batch_size: int = 1000,
+             sort: Optional[Union[List[Any], str]] = None,
+             keep_alive: str = '1m',
+             routing: Optional[str] = None,
+             index: Optional[str] = None,
+             _source: Optional[Union[str, List[str]]] = None,
+             **kwargs: Any) -> AsyncGenerator[TModel, None]: ...
+
     @classmethod
     async def scan(cls: Type[TModel],
                    query: Optional[ESQuery] = None,
                    *,
                    batch_size: int = 1000,
-                   sort: Optional[Union[list, str]] = None,
+                   sort: Optional[Union[List[Any], str]] = None,
                    keep_alive: str = '1m',
                    routing: Optional[str] = None,
                    index: Optional[str] = None,
                    _source: Optional[Union[str, List[str]]] = None,
-                   **kwargs) -> AsyncGenerator[TModel, None]:
+                   **kwargs: Any) -> AsyncGenerator[TModel, None]:
         """
         Iterate through all results of a query
 
@@ -1045,9 +1101,21 @@ class ESModel(ESBaseModel):
                 for doc in batch:
                     yield doc
 
+    # PyCharm checks a dict literal argument only if the parameter is a TypedDict (not Optional), so it has its own
+    # overload
+    @overload
+    @classmethod
+    async def count(cls: Type[TModel], query: ESQuery,
+                    routing: Optional[str] = None, index: Optional[str] = None, **kwargs: Any) -> int: ...
+
+    @overload
     @classmethod
     async def count(cls: Type[TModel], query: Optional[ESQuery] = None,
-                    routing: Optional[str] = None, index: Optional[str] = None, **kwargs) -> int:
+                    routing: Optional[str] = None, index: Optional[str] = None, **kwargs: Any) -> int: ...
+
+    @classmethod
+    async def count(cls: Type[TModel], query: Optional[ESQuery] = None,
+                    routing: Optional[str] = None, index: Optional[str] = None, **kwargs: Any) -> int:
         """
         Count documents in the index
 
@@ -1065,6 +1133,39 @@ class ESModel(ESBaseModel):
         except KeyError:
             raise InvalidResponseError("Invalid response from ElasticSearch")
 
+    # PyCharm checks dict literal arguments only if the parameters are TypedDicts (not Optional or a dict of
+    # TypedDicts), mypy doesn't support ESNamedAggs (PEP 728) yet, so there are overloads for all of them
+    @overload
+    @classmethod
+    async def aggregate(cls: Type[TModel],
+                        aggs: ESNamedAggs,
+                        *,
+                        query: ESQuery,
+                        routing: Optional[str] = None,
+                        index: Optional[str] = None,
+                        **kwargs: Any) -> ESAggsResponse: ...
+
+    @overload
+    @classmethod
+    async def aggregate(cls: Type[TModel],
+                        aggs: ESNamedAggs,
+                        *,
+                        query: Optional[ESQuery] = None,
+                        routing: Optional[str] = None,
+                        index: Optional[str] = None,
+                        **kwargs: Any) -> ESAggsResponse: ...
+
+    @overload
+    @classmethod
+    async def aggregate(cls: Type[TModel],
+                        aggs: Mapping[str, ESAgg],
+                        *,
+                        query: ESQuery,
+                        routing: Optional[str] = None,
+                        index: Optional[str] = None,
+                        **kwargs: Any) -> ESAggsResponse: ...
+
+    @overload
     @classmethod
     async def aggregate(cls: Type[TModel],
                         aggs: Mapping[str, ESAgg],
@@ -1072,7 +1173,16 @@ class ESModel(ESBaseModel):
                         query: Optional[ESQuery] = None,
                         routing: Optional[str] = None,
                         index: Optional[str] = None,
-                        **kwargs) -> ESAggsResponse:
+                        **kwargs: Any) -> ESAggsResponse: ...
+
+    @classmethod
+    async def aggregate(cls: Type[TModel],
+                        aggs: Mapping[str, ESAgg],
+                        *,
+                        query: Optional[ESQuery] = None,
+                        routing: Optional[str] = None,
+                        index: Optional[str] = None,
+                        **kwargs: Any) -> ESAggsResponse:
         """
         Aggregate Model with aggregation dict
         Before aggregation the model can be filtered by query dict.
@@ -1211,7 +1321,7 @@ def lazy_property(func: Callable[..., Awaitable[Any]]):
             return None
 
     @wraps(func)
-    async def async_wrapper(self: ESBaseModel, *args, **kwargs):
+    async def async_wrapper(self: ESBaseModel, *args, **kwargs: Any):
         # Check recursion depth
         depth = _lazy_property_recursion_depth.get()
         if depth >= self.ESConfig.lazy_property_max_recursion_depth:
@@ -1247,7 +1357,7 @@ def retry_on_conflict(max_retries=-1, *, reload_on_conflict=True):
 
     def decorator(func: Callable):
         @wraps(func)
-        async def wrapper(*args, **kwargs):
+        async def wrapper(*args, **kwargs: Any):
             retries = 0
             while True:
                 try:
@@ -1305,8 +1415,8 @@ class Pagination(BaseModel):
             async def _search(cls, query: ESQuery, *,
                               page_size: Optional[int] = None,
                               page: int = None,
-                              sort: Optional[Union[list, str]] = None,
-                              **kwargs) -> ESResponse:
+                              sort: Optional[Union[List[Any], str]] = None,
+                              **kwargs: Any) -> ESResponse:
                 page_size = self.page_size if page_size is None else page_size
                 page = self.page if page is None else page
                 res = await model_cls._search(query, page_size=page_size, page=page, sort=sort, **kwargs)
@@ -1346,7 +1456,12 @@ class Sort(BaseModel):
     """
     Sort parameters
     """
-    sort: Union[List[Dict[str, SortOrder]], str, None]
+    if TYPE_CHECKING:
+        # PyCharm can't check a TypedDict in a union parameter (it reports correct dict literals), pydantic still
+        # validates the runtime type below
+        sort: Union[List[Dict[str, Dict[str, Literal['asc', 'desc']]]], str, None]
+    else:
+        sort: Union[List[Dict[str, SortOrder]], str, None]
 
     def __call__(self, model_cls: Type[TModel]) -> Type[TModel]:
         """
@@ -1368,15 +1483,15 @@ class Sort(BaseModel):
             async def _search(cls, query: ESQuery, *,
                               page_size: Optional[int] = None,
                               page: int = None,
-                              sort: Optional[Union[list, str]] = None,
-                              **kwargs) -> ESResponse:
+                              sort: Optional[Union[List[Any], str]] = None,
+                              **kwargs: Any) -> ESResponse:
                 sort = self.sort if sort is None else sort
                 return await model_cls._search(query, page_size=page_size, page=page, sort=sort, **kwargs)
 
             @classmethod
             def scan_batches(cls, query: Optional[ESQuery] = None, *,
-                             sort: Optional[Union[list, str]] = None,
-                             **kwargs) -> AsyncGenerator[List[TModel], None]:
+                             sort: Optional[Union[List[Any], str]] = None,
+                             **kwargs: Any) -> AsyncGenerator[List[TModel], None]:
                 sort = self.sort if sort is None else sort
                 return model_cls.scan_batches(query, sort=sort, **kwargs)
 

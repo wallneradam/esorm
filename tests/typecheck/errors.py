@@ -33,7 +33,9 @@ async def queries(name: str) -> None:
     await User.search({'range': {'age': 18}})  # E: range needs params
     await User.search({'bool': {'must': [{'match': {'name': 'x'}}], 'shuld': []}})  # E: typo in bool
     await User.search({'bool': {'must': [{'mtach': {'name': 'x'}}]}})  # E: typo in a clause
-    await User.search({'bool': {'filter': [{'bool': {'must_not': {'exits': {'field': 'x'}}}}]}})  # E: deep typo
+    await User.search({'bool': {'filter': [{'bool': {'must_not': [{'exits': {'field': 'x'}}]}}]}})  # E: deep typo
+    await User.search({'nested': {'path': 'a', 'query': {'bool': {'must': [{'trem': {'a': 1}}]}}}})  # E: deep typo
+    await User.search({'bool': {'must': {'match': {'name': 'x'}}}})  # E: bool clauses must be in a list
     await User.search({'bool': {'minimum_should_match': [1]}})  # E: wrong type
     await User.search({'nested': {'path': 'tags'}})  # E: nested needs a query
     await User.search({'exists': {'name': 'x'}})  # E: exists needs field
@@ -55,6 +57,11 @@ async def aggregations() -> None:
     await User.aggregate({'avg_age': {'avgg': {'field': 'age'}}})  # E: unknown aggregation
     await User.aggregate({'countries': {'terms': {'field': 'country', 'order': {'_count': 'dsc'}}}})  # E: order
     await User.aggregate({'countries': {'terms': {'field': 'country'}, 'agg': {}}})  # E: typo in sub-aggs key
+    await User.aggregate({'c': {'terms': {'field': 'country'}, 'aggs': {'a': {'avgg': {'field': 'age'}}}}})  # E: sub-agg
+    deep_aggs = {'a': {'terms': {'field': 'b'}, 'aggs': {'x': {'mx': {}}}}}
+    await User.aggregate({'c': {'terms': {'field': 'c'}, 'aggs': deep_aggs}})  # E: deep sub-agg (unannotated)
+    await User.aggregate({'c': {'terms': {'field': 'c'}, 'aggs': {'a': {'aggs': {'x': {'mx': {}}}}}}})  # E: deep
+    await User.aggregate({'avg_age': {'avg': {'field': 'age'}}}, query={'trem': {'a': 1}})  # E: typo in query
     aggs_def: ESAggs = {'ranges': {'range': {'field': 'age', 'ranges': [{'from': 1, 'too': 2}]}}}  # E: typo
     aggs = await User.aggregate(aggs_def)
     for bucket in aggs['countries']['buckets']:

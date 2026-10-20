@@ -62,7 +62,7 @@ async def inline_queries(countries: List[str], ages: List[int], uid: UUID) -> No
     await User.search({'simple_query_string': {'query': 'john + doe', 'fields': ['name']}})
     await User.search({'combined_fields': {'query': 'john', 'fields': ['name', 'title']}})
     # Compound queries
-    await User.search({'bool': {'must': {'match': {'name': {'query': 'x'}}}}})
+    await User.search({'bool': {'must': [{'match': {'name': {'query': 'x'}}}]}})
     await User.search({'bool': {
         'filter': [{'term': {'country': {'value': 'HU'}}}],
         'must_not': [{'exists': {'field': 'nick'}}],
@@ -165,7 +165,7 @@ async def query_variables(name: str, min_age: int) -> None:
     # Dict of field filters
     filters: Dict[str, str] = {'country': 'HU'}
     await User.search({'bool': {'filter': [{'term': {k: v}} for k, v in filters.items()]}})
-    await User.search({'term': filters})
+    await User.search({'term': {k: v for k, v in filters.items()}})
     # Date math and timedelta
     since = datetime.now() - timedelta(days=1)
     await User.search({'range': {'created': {'gte': since}}})

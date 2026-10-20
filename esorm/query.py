@@ -12,7 +12,7 @@ query variables::
         must.append({'match': {'name': name}})
     query: ESQuery = {'bool': {'must': must}}
 """
-from typing import Literal, Union, Any, List, Mapping, Sequence, Iterator, Protocol, TypeVar, SupportsIndex, overload, \
+from typing import Literal, Union, Any, Dict, List, Sequence, Iterator, Protocol, TypeVar, SupportsIndex, overload, \
     get_args
 from typing_extensions import TypeAlias, TypedDict, Required
 
@@ -21,7 +21,7 @@ from decimal import Decimal
 from uuid import UUID
 
 __all__ = [
-    'ESQuery',
+    'ESQuery', 'ESQueryClause', 'ESClauses',
     'ESValue', 'ESRangeValue', 'ESScript', 'ESGeoPoint', 'SequenceNotStr',
     # Leaf query parameters
     'ESTerm', 'ESTermsLookup', 'ESTermsSet', 'ESRange', 'ESExists', 'ESIds', 'ESPrefix', 'ESWildcard', 'ESRegexp',
@@ -110,7 +110,6 @@ _MinimumShouldMatch: TypeAlias = Union[int, str]
 _Operator: TypeAlias = Literal['and', 'or', 'AND', 'OR']
 _ZeroTermsQuery: TypeAlias = Literal['none', 'all']
 _Fields: TypeAlias = Sequence[str]
-_Any: TypeAlias = Mapping[str, Any]
 
 
 class ESScriptDef(TypedDict, total=False):
@@ -123,7 +122,7 @@ class ESScriptDef(TypedDict, total=False):
     """ The id of a stored script """
     lang: str
     """ The script language, default is painless """
-    params: Mapping[str, Any]
+    params: Dict[str, Any]
     """ Parameters of the script """
 
 
@@ -646,17 +645,17 @@ class ESKnnQuery(TypedDict, total=False):
     """The field to search on."""
     query_vector: Sequence[float]
     """The query vector."""
-    query_vector_builder: Mapping[str, Any]
+    query_vector_builder: Dict[str, Any]
     """ Configuration to build the query vector from a model """
     k: int
     """The number of neighbors to return."""
     num_candidates: int
     """The number of candidates to consider."""
-    filter: Union['ESQuery', Sequence['ESQuery']]
+    filter: Union['ESQueryClause', List['ESQueryClause']]
     """Optional filter to apply to the search."""
     similarity: _Float
     """ Minimum similarity of the results """
-    rescore_vector: Mapping[str, Any]
+    rescore_vector: Dict[str, Any]
     """ Rescoring options of quantized vectors (e.g. ``{'oversample': 2.0}``) """
     boost: _Float
     """ Optional boosting value for the query. """
@@ -684,7 +683,7 @@ class ESSparseVector(TypedDict, total=False):
     """
     field: Required[str]
     """ The sparse_vector field to search on """
-    query_vector: Mapping[str, float]
+    query_vector: Dict[str, float]
     """ Token - weight pairs """
     inference_id: str
     """ The inference endpoint to convert the query text into tokens """
@@ -692,7 +691,7 @@ class ESSparseVector(TypedDict, total=False):
     """ The query text """
     prune: _Boolean
     """ Prune the query """
-    pruning_config: Mapping[str, Any]
+    pruning_config: Dict[str, Any]
     """ Pruning configuration """
     boost: _Float
     """ Optional boosting value for the query. """
@@ -704,13 +703,16 @@ class ESSparseVector(TypedDict, total=False):
 # Compound queries
 #
 
-ESClauses: TypeAlias = Union['ESQuery', Sequence['ESQuery']]
-""" One query clause or a list of query clauses """
+ESClauses: TypeAlias = List['ESQueryClause']
+""" List of query clauses """
 
 
 class ESBool(TypedDict, total=False):  # We use total=False, because not every key is required
     """
     Bool query structure
+
+    The clauses are lists. ES accepts a single clause too, but PyCharm can't check a union of a dict and a list, so
+    only lists are allowed.
     """
     must: ESClauses
     """ Must queries """
@@ -732,9 +734,9 @@ class ESBoosting(TypedDict, total=False):
     """
     Represents a boosting query in Elasticsearch.
     """
-    positive: Required['ESQuery']
+    positive: Required['ESQueryClause']
     """ Documents must match this query """
-    negative: Required['ESQuery']
+    negative: Required['ESQueryClause']
     """ The score of matching documents is decreased """
     negative_boost: Required[_Float]
     """ Multiplier for the score of the negative matches (between 0 and 1) """
@@ -748,7 +750,7 @@ class ESConstantScore(TypedDict, total=False):
     """
     Represents a constant_score query in Elasticsearch.
     """
-    filter: Required['ESQuery']
+    filter: Required['ESQueryClause']
     """ Filter query """
     boost: _Float
     """ The constant score of the matching documents """
@@ -760,7 +762,7 @@ class ESDisMax(TypedDict, total=False):
     """
     Represents a dis_max query in Elasticsearch.
     """
-    queries: Required[Sequence['ESQuery']]
+    queries: Required[List['ESQueryClause']]
     """ Query clauses """
     tie_breaker: _Float
     """ Increases the score of documents matching multiple clauses """
@@ -814,11 +816,11 @@ class _ESScoreFunctions(TypedDict, total=False):
     """ Random score """
     script_score: ESScriptScoreFunction
     """ Score computed by a script """
-    gauss: Mapping[str, Any]
+    gauss: Dict[str, Any]
     """ Gauss decay function """
-    linear: Mapping[str, Any]
+    linear: Dict[str, Any]
     """ Linear decay function """
-    exp: Mapping[str, Any]
+    exp: Dict[str, Any]
     """ Exponential decay function """
 
 
@@ -826,7 +828,7 @@ class ESScoreFunction(_ESScoreFunctions, total=False):
     """
     A score function in the functions list of a function_score query
     """
-    filter: 'ESQuery'
+    filter: 'ESQueryClause'
     """ Apply the function only to documents matching this query """
 
 
@@ -836,9 +838,9 @@ class ESFunctionScore(_ESScoreFunctions, total=False):
 
     A single function can be specified directly, more functions in the ``functions`` list.
     """
-    query: 'ESQuery'
+    query: 'ESQueryClause'
     """ The query, default is match_all """
-    functions: Sequence[ESScoreFunction]
+    functions: List[ESScoreFunction]
     """ Score functions """
     boost_mode: Literal['multiply', 'replace', 'sum', 'avg', 'max', 'min']
     """ How the computed score is combined with the query score """
@@ -858,7 +860,7 @@ class ESFunctionScore(_ESScoreFunctions, total=False):
 # Joining queries
 #
 
-_InnerHits: TypeAlias = Mapping[str, Any]
+_InnerHits: TypeAlias = Dict[str, Any]
 _ScoreMode: TypeAlias = Literal['avg', 'max', 'min', 'none', 'sum']
 
 
@@ -868,7 +870,7 @@ class ESNested(TypedDict, total=False):
     """
     path: Required[str]
     """ Path of the nested field """
-    query: Required['ESQuery']
+    query: Required['ESQueryClause']
     """ Query on the nested documents """
     score_mode: _ScoreMode
     """ How the scores of the matching nested documents are combined """
@@ -888,7 +890,7 @@ class ESHasChild(TypedDict, total=False):
     """
     type: Required[str]
     """ Name of the child relationship """
-    query: Required['ESQuery']
+    query: Required['ESQueryClause']
     """ Query on the child documents """
     score_mode: _ScoreMode
     """ How the scores of the matching child documents are combined """
@@ -912,7 +914,7 @@ class ESHasParent(TypedDict, total=False):
     """
     parent_type: Required[str]
     """ Name of the parent relationship """
-    query: Required['ESQuery']
+    query: Required['ESQueryClause']
     """ Query on the parent documents """
     score: _Boolean
     """ Use the score of the parent document """
@@ -962,7 +964,7 @@ class ESScriptScore(TypedDict, total=False):
     """
     Represents a script_score query in Elasticsearch.
     """
-    query: Required['ESQuery']
+    query: Required['ESQueryClause']
     """ The query """
     script: Required[ESScript]
     """ The script computing the score """
@@ -994,9 +996,9 @@ class ESMoreLikeThis(TypedDict, total=False):
     """
     Represents a more_like_this query in Elasticsearch.
     """
-    like: Required[Union[str, Mapping[str, Any], Sequence[Union[str, Mapping[str, Any]]]]]
+    like: Required[Union[str, Dict[str, Any], List[Union[str, Dict[str, Any]]]]]
     """ Text or documents to find similar documents to """
-    unlike: Union[str, Mapping[str, Any], Sequence[Union[str, Mapping[str, Any]]]]
+    unlike: Union[str, Dict[str, Any], List[Union[str, Dict[str, Any]]]]
     """ Text or documents to find dissimilar documents to """
     fields: _Fields
     """ Fields to use """
@@ -1036,13 +1038,13 @@ class ESRankFeature(TypedDict, total=False):
     """
     field: Required[str]
     """ rank_feature or rank_features field """
-    saturation: Mapping[str, float]
+    saturation: Dict[str, float]
     """ Saturation function """
-    log: Mapping[str, float]
+    log: Dict[str, float]
     """ Logarithmic function """
-    sigmoid: Mapping[str, float]
+    sigmoid: Dict[str, float]
     """ Sigmoid function """
-    linear: Mapping[str, float]
+    linear: Dict[str, float]
     """ Linear function """
     boost: _Float
     """ Boosting value for the query """
@@ -1056,9 +1058,9 @@ class ESPercolate(TypedDict, total=False):
     """
     field: Required[str]
     """ The percolator field """
-    document: Mapping[str, Any]
+    document: Dict[str, Any]
     """ The document to match """
-    documents: Sequence[Mapping[str, Any]]
+    documents: List[Dict[str, Any]]
     """ The documents to match """
     index: str
     """ Index of a stored document to match """
@@ -1090,11 +1092,11 @@ class ESPinned(TypedDict, total=False):
     """
     Represents a pinned query in Elasticsearch.
     """
-    organic: Required['ESQuery']
+    organic: Required['ESQueryClause']
     """ The query of the not pinned documents """
-    ids: Sequence[str]
+    ids: SequenceNotStr[str]
     """ Ids of the pinned documents """
-    docs: Sequence[Mapping[str, str]]
+    docs: List[Dict[str, str]]
     """ The pinned documents (``_id`` and ``_index``) """
 
 
@@ -1102,9 +1104,9 @@ class ESHybrid(TypedDict, total=False):
     """
     Represents a hybrid query in OpenSearch.
     """
-    queries: Required[Sequence['ESQuery']]
+    queries: Required[List['ESQueryClause']]
     """ Query clauses, their scores are normalized by a search pipeline """
-    filter: 'ESQuery'
+    filter: 'ESQueryClause'
     """ Filter applied to all subqueries """
 
 
@@ -1135,13 +1137,13 @@ class ESQuery(TypedDict, total=False):
     """ Function score query structure """
 
     # Full text queries
-    match: Mapping[str, Union[ESMatch, _Text]]
+    match: Dict[str, Union[ESMatch, _Text]]
     """ Match query structure: ``{field: {'query': value, ...}}`` or ``{field: value}`` """
-    match_phrase: Mapping[str, Union[ESMatchPhrase, str]]
+    match_phrase: Dict[str, Union[ESMatchPhrase, str]]
     """ Match phrase query structure: ``{field: {'query': value, ...}}`` or ``{field: value}`` """
-    match_phrase_prefix: Mapping[str, Union[ESMatchPhrasePrefix, str]]
+    match_phrase_prefix: Dict[str, Union[ESMatchPhrasePrefix, str]]
     """ Match phrase prefix query structure: ``{field: {'query': value, ...}}`` or ``{field: value}`` """
-    match_bool_prefix: Mapping[str, Union[ESMatchBoolPrefix, str]]
+    match_bool_prefix: Dict[str, Union[ESMatchBoolPrefix, str]]
     """ Match bool prefix query structure: ``{field: {'query': value, ...}}`` or ``{field: value}`` """
     multi_match: ESMultiMatch
     """ MultiMatch query structure """
@@ -1151,29 +1153,29 @@ class ESQuery(TypedDict, total=False):
     """ Query string query structure """
     simple_query_string: ESSimpleQueryString
     """ Simple query string query structure """
-    intervals: Mapping[str, Mapping[str, Any]]
+    intervals: Dict[str, Dict[str, Any]]
     """ Intervals query structure """
 
     # Term level queries
-    term: Mapping[str, Union[ESTerm, ESValue]]
+    term: Dict[str, Union[ESTerm, ESValue]]
     """ Term query structure: ``{field: {'value': value, ...}}`` or ``{field: value}`` """
-    terms: Mapping[str, Union[SequenceNotStr[ESValue], ESTermsLookup]]
+    terms: Dict[str, Union[SequenceNotStr[ESValue], ESTermsLookup]]
     """ Terms query structure: ``{field: [value, ...]}`` or ``{field: <terms lookup>}`` """
-    terms_set: Mapping[str, ESTermsSet]
+    terms_set: Dict[str, ESTermsSet]
     """ Terms set query structure """
-    range: Mapping[str, ESRange]
+    range: Dict[str, ESRange]
     """ Range query structure: ``{field: {'gte': value, ...}}`` """
     exists: ESExists
     """ Exists query structure """
     ids: ESIds
     """ Ids query structure """
-    prefix: Mapping[str, Union[ESPrefix, str]]
+    prefix: Dict[str, Union[ESPrefix, str]]
     """ Prefix query structure: ``{field: {'value': value, ...}}`` or ``{field: value}`` """
-    wildcard: Mapping[str, Union[ESWildcard, str]]
+    wildcard: Dict[str, Union[ESWildcard, str]]
     """ Wildcard query structure: ``{field: {'value': value, ...}}`` or ``{field: value}`` """
-    regexp: Mapping[str, Union[ESRegexp, str]]
+    regexp: Dict[str, Union[ESRegexp, str]]
     """ Regexp query structure: ``{field: {'value': value, ...}}`` or ``{field: value}`` """
-    fuzzy: Mapping[str, Union[ESFuzzy, str]]
+    fuzzy: Dict[str, Union[ESFuzzy, str]]
     """ Fuzzy query structure: ``{field: {'value': value, ...}}`` or ``{field: value}`` """
 
     # Match all / none
@@ -1183,17 +1185,17 @@ class ESQuery(TypedDict, total=False):
     """ Match none query structure """
 
     # Geo queries, field name and parameters are in the same dict
-    geo_distance: Mapping[str, _GeoParam]
+    geo_distance: Dict[str, _GeoParam]
     """ Geo distance query structure: ``{'distance': '10km', field: <geo point>}`` """
-    geo_bounding_box: Mapping[str, _GeoParam]
+    geo_bounding_box: Dict[str, _GeoParam]
     """ Geo bounding box query structure: ``{field: {'top_left': .., 'bottom_right': ..}}`` """
-    geo_shape: Mapping[str, Any]
+    geo_shape: Dict[str, Any]
     """ Geo shape query structure """
-    geo_polygon: Mapping[str, Any]
+    geo_polygon: Dict[str, Any]
     """ Geo polygon query structure (deprecated) """
-    geo_grid: Mapping[str, Any]
+    geo_grid: Dict[str, Any]
     """ Geo grid query structure """
-    shape: Mapping[str, Any]
+    shape: Dict[str, Any]
     """ Shape query structure """
 
     # Joining queries
@@ -1213,9 +1215,9 @@ class ESQuery(TypedDict, total=False):
     """ Semantic query structure """
     sparse_vector: ESSparseVector
     """ Sparse vector query structure """
-    text_expansion: Mapping[str, Any]
+    text_expansion: Dict[str, Any]
     """ Text expansion query structure (deprecated, use sparse_vector) """
-    weighted_tokens: Mapping[str, Any]
+    weighted_tokens: Dict[str, Any]
     """ Weighted tokens query structure """
 
     # Specialized queries
@@ -1235,37 +1237,194 @@ class ESQuery(TypedDict, total=False):
     """ Wrapper query structure """
     pinned: ESPinned
     """ Pinned query structure """
-    rule: Mapping[str, Any]
+    rule: Dict[str, Any]
     """ Rule query structure """
 
     # Span queries
-    span_containing: Mapping[str, Any]
+    span_containing: Dict[str, Any]
     """ Span containing query structure """
-    span_field_masking: Mapping[str, Any]
+    span_field_masking: Dict[str, Any]
     """ Span field masking query structure """
-    field_masking_span: Mapping[str, Any]
+    field_masking_span: Dict[str, Any]
     """ Span field masking query structure (old name) """
-    span_first: Mapping[str, Any]
+    span_first: Dict[str, Any]
     """ Span first query structure """
-    span_multi: Mapping[str, Any]
+    span_multi: Dict[str, Any]
     """ Span multi-term query structure """
-    span_near: Mapping[str, Any]
+    span_near: Dict[str, Any]
     """ Span near query structure """
-    span_not: Mapping[str, Any]
+    span_not: Dict[str, Any]
     """ Span not query structure """
-    span_or: Mapping[str, Any]
+    span_or: Dict[str, Any]
     """ Span or query structure """
-    span_term: Mapping[str, Any]
+    span_term: Dict[str, Any]
     """ Span term query structure """
-    span_within: Mapping[str, Any]
+    span_within: Dict[str, Any]
     """ Span within query structure """
 
     # OpenSearch specific queries
     hybrid: ESHybrid
     """ Hybrid query structure (OpenSearch) """
-    neural: Mapping[str, Any]
+    neural: Dict[str, Any]
     """ Neural query structure (OpenSearch) """
-    neural_sparse: Mapping[str, Any]
+    neural_sparse: Dict[str, Any]
+    """ Neural sparse query structure (OpenSearch) """
+
+
+class ESQueryClause(TypedDict, total=False):
+    """
+    A query clause of a compound query (e.g. the clauses of ``bool.must``, ``nested.query``)
+
+    It has the same keys as :class:`ESQuery`, and they are compatible with each other: every ESQuery can be used as a
+    clause. It is a separate class (not a subclass), so the type checkers check the clauses too: PyCharm doesn't check
+    a type inside itself (recursion), and pyright doesn't check the deeper levels of a recursive TypedDict subclass.
+
+    Its keys must be the same as the keys of ESQuery (tests/typecheck/check.py checks it).
+    """
+    # Compound queries
+    bool: ESBool
+    """ Bool query structure """
+    boosting: ESBoosting
+    """ Boosting query structure """
+    constant_score: ESConstantScore
+    """ Constant score query structure """
+    dis_max: ESDisMax
+    """ Disjunction max query structure """
+    function_score: ESFunctionScore
+    """ Function score query structure """
+
+    # Full text queries
+    match: Dict[str, Union[ESMatch, _Text]]
+    """ Match query structure: ``{field: {'query': value, ...}}`` or ``{field: value}`` """
+    match_phrase: Dict[str, Union[ESMatchPhrase, str]]
+    """ Match phrase query structure: ``{field: {'query': value, ...}}`` or ``{field: value}`` """
+    match_phrase_prefix: Dict[str, Union[ESMatchPhrasePrefix, str]]
+    """ Match phrase prefix query structure: ``{field: {'query': value, ...}}`` or ``{field: value}`` """
+    match_bool_prefix: Dict[str, Union[ESMatchBoolPrefix, str]]
+    """ Match bool prefix query structure: ``{field: {'query': value, ...}}`` or ``{field: value}`` """
+    multi_match: ESMultiMatch
+    """ MultiMatch query structure """
+    combined_fields: ESCombinedFields
+    """ Combined fields query structure """
+    query_string: ESQueryString
+    """ Query string query structure """
+    simple_query_string: ESSimpleQueryString
+    """ Simple query string query structure """
+    intervals: Dict[str, Dict[str, Any]]
+    """ Intervals query structure """
+
+    # Term level queries
+    term: Dict[str, Union[ESTerm, ESValue]]
+    """ Term query structure: ``{field: {'value': value, ...}}`` or ``{field: value}`` """
+    terms: Dict[str, Union[SequenceNotStr[ESValue], ESTermsLookup]]
+    """ Terms query structure: ``{field: [value, ...]}`` or ``{field: <terms lookup>}`` """
+    terms_set: Dict[str, ESTermsSet]
+    """ Terms set query structure """
+    range: Dict[str, ESRange]
+    """ Range query structure: ``{field: {'gte': value, ...}}`` """
+    exists: ESExists
+    """ Exists query structure """
+    ids: ESIds
+    """ Ids query structure """
+    prefix: Dict[str, Union[ESPrefix, str]]
+    """ Prefix query structure: ``{field: {'value': value, ...}}`` or ``{field: value}`` """
+    wildcard: Dict[str, Union[ESWildcard, str]]
+    """ Wildcard query structure: ``{field: {'value': value, ...}}`` or ``{field: value}`` """
+    regexp: Dict[str, Union[ESRegexp, str]]
+    """ Regexp query structure: ``{field: {'value': value, ...}}`` or ``{field: value}`` """
+    fuzzy: Dict[str, Union[ESFuzzy, str]]
+    """ Fuzzy query structure: ``{field: {'value': value, ...}}`` or ``{field: value}`` """
+
+    # Match all / none
+    match_all: ESMatchAll
+    """ Match all query structure """
+    match_none: ESMatchNone
+    """ Match none query structure """
+
+    # Geo queries, field name and parameters are in the same dict
+    geo_distance: Dict[str, _GeoParam]
+    """ Geo distance query structure: ``{'distance': '10km', field: <geo point>}`` """
+    geo_bounding_box: Dict[str, _GeoParam]
+    """ Geo bounding box query structure: ``{field: {'top_left': .., 'bottom_right': ..}}`` """
+    geo_shape: Dict[str, Any]
+    """ Geo shape query structure """
+    geo_polygon: Dict[str, Any]
+    """ Geo polygon query structure (deprecated) """
+    geo_grid: Dict[str, Any]
+    """ Geo grid query structure """
+    shape: Dict[str, Any]
+    """ Shape query structure """
+
+    # Joining queries
+    nested: ESNested
+    """ Nested query structure """
+    has_child: ESHasChild
+    """ Has child query structure """
+    has_parent: ESHasParent
+    """ Has parent query structure """
+    parent_id: ESParentId
+    """ Parent id query structure """
+
+    # Vector and semantic queries
+    knn: ESKnnQuery
+    """ KNN query structure """
+    semantic: ESSemantic
+    """ Semantic query structure """
+    sparse_vector: ESSparseVector
+    """ Sparse vector query structure """
+    text_expansion: Dict[str, Any]
+    """ Text expansion query structure (deprecated, use sparse_vector) """
+    weighted_tokens: Dict[str, Any]
+    """ Weighted tokens query structure """
+
+    # Specialized queries
+    script: ESScriptQuery
+    """ Script query structure """
+    script_score: ESScriptScore
+    """ Script score query structure """
+    distance_feature: ESDistanceFeature
+    """ Distance feature query structure """
+    more_like_this: ESMoreLikeThis
+    """ More like this query structure """
+    rank_feature: ESRankFeature
+    """ Rank feature query structure """
+    percolate: ESPercolate
+    """ Percolate query structure """
+    wrapper: ESWrapper
+    """ Wrapper query structure """
+    pinned: ESPinned
+    """ Pinned query structure """
+    rule: Dict[str, Any]
+    """ Rule query structure """
+
+    # Span queries
+    span_containing: Dict[str, Any]
+    """ Span containing query structure """
+    span_field_masking: Dict[str, Any]
+    """ Span field masking query structure """
+    field_masking_span: Dict[str, Any]
+    """ Span field masking query structure (old name) """
+    span_first: Dict[str, Any]
+    """ Span first query structure """
+    span_multi: Dict[str, Any]
+    """ Span multi-term query structure """
+    span_near: Dict[str, Any]
+    """ Span near query structure """
+    span_not: Dict[str, Any]
+    """ Span not query structure """
+    span_or: Dict[str, Any]
+    """ Span or query structure """
+    span_term: Dict[str, Any]
+    """ Span term query structure """
+    span_within: Dict[str, Any]
+    """ Span within query structure """
+
+    # OpenSearch specific queries
+    hybrid: ESHybrid
+    """ Hybrid query structure (OpenSearch) """
+    neural: Dict[str, Any]
+    """ Neural query structure (OpenSearch) """
+    neural_sparse: Dict[str, Any]
     """ Neural sparse query structure (OpenSearch) """
 
 
@@ -1284,7 +1443,7 @@ ESShould: TypeAlias = ESClauses
 ESMustNot: TypeAlias = ESClauses
 """ Represents must_not queries in Elasticsearch """
 
-ESGeoDistance: TypeAlias = Mapping[str, _GeoParam]
+ESGeoDistance: TypeAlias = Dict[str, _GeoParam]
 """ Represents the parameters of a geo_distance query """
 
 FieldRange: TypeAlias = ESQuery

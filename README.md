@@ -1382,6 +1382,9 @@ async def avg_age_by_country():
 
 Some notes:
 
+- The clauses of a `bool` query must be lists (`'must': [{...}]`). ES accepts a single clause too, but PyCharm
+  can't check a union of a dict and a list, so the type hints allow only lists. The same applies to the `filters`
+  aggregation: only named filters (a dict) are allowed.
 - The `value` of the `avg`, `min` and `max` aggregations is `None` if there are no documents, so it is
   `Optional[float]`.
 - Buckets are typed as a list. With `keyed: True` (or with named filters in a `filters` aggregation) ES returns them
@@ -1394,7 +1397,24 @@ Some notes:
 ### PyCharm
 
 This project is developed with [PyCharm](https://www.jetbrains.com/pycharm/) IDE. You can use the IDE
-autocompletion and type checking features.
+autocompletion and type checking features. The type hints are designed to work with PyCharm's type checker too
+(tested with PyCharm 2026.2): correct queries and aggregations are not reported, and the typical mistakes are.
+Its limitations:
+
+- It checks the query clauses only to the first level of nesting, e.g. a clause in a `bool` query which is in a
+  clause of another `bool` query is not checked. Pyright and mypy check every level.
+- If a model method returning models (`search()`, `search_one()`, `scan()`, ...) gets a dict literal as query,
+  PyCharm can't infer the type of the result (it is a PyCharm bug: a generic type can't be inferred if a `TypedDict`
+  literal argument doesn't have all the keys). So there is no autocompletion for the results. Annotate the query
+  or the result to have it:
+
+  ```python
+  query: ESQuery = {'term': {'country': 'HU'}}
+  users = await User.search(query)  # List[User]
+  # or
+  users: List[User] = await User.search({'term': {'country': 'HU'}})
+  ```
+
 Recommended Jetbrains Plugins:
 - [Pydantic](https://plugins.jetbrains.com/plugin/12861-pydantic): This plugin provides support for Pydantic models and type hints, helps a lot with autocompletion and type checking.
 

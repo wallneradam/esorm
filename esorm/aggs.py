@@ -16,12 +16,12 @@ are a dict of them: :class:`ESAggs`::
     for bucket in aggs['countries']['buckets']:
         print(bucket['key'], bucket['doc_count'], bucket['avg_age']['value'])
 """
-from typing import Dict, List, Union, Any, Literal, Mapping, Optional, Sequence, overload
+from typing import Dict, List, Union, Any, Literal, Optional, Sequence, overload
 from typing_extensions import TypeAlias, TypedDict, Required
 
 from datetime import date
 
-from .query import ESQuery, ESScript, ESValue, ESGeoPoint
+from .query import ESQuery, ESQueryClause, ESScript, ESValue, ESGeoPoint
 
 #
 # Value types
@@ -34,10 +34,9 @@ _Boolean: TypeAlias = bool
 _Float: TypeAlias = float
 _Number: TypeAlias = Union[int, float]
 _SortOrder: TypeAlias = Literal['asc', 'desc']
-_BucketOrder: TypeAlias = Union[Mapping[str, _SortOrder], Sequence[Mapping[str, _SortOrder]]]
+_BucketOrder: TypeAlias = Union[Dict[str, _SortOrder], List[Dict[str, _SortOrder]]]
 _GapPolicy: TypeAlias = Literal['skip', 'insert_zeros', 'keep_values']
 _Missing: TypeAlias = Union[str, int, float, bool, date]
-_Any: TypeAlias = Mapping[str, Any]
 
 
 #
@@ -122,9 +121,9 @@ class ESAggPercentilesParams(TypedDict, total=False):
     """ Array of percentiles to compute (e.g., [25, 50, 75, 95, 99]). """
     keyed: _Boolean
     """ Whether to return percentiles as a hash instead of an array. """
-    tdigest: Mapping[str, Union[int, float, str]]
+    tdigest: Dict[str, Union[int, float, str]]
     """ T-Digest algorithm configuration. """
-    hdr: Mapping[str, int]
+    hdr: Dict[str, int]
     """ HDR histogram configuration. """
     missing: _Missing
     """ Value to use for documents missing the aggregation field. """
@@ -144,9 +143,9 @@ class ESAggPercentileRanksParams(TypedDict, total=False):
     """ Values to compute the percentile ranks of """
     keyed: _Boolean
     """ Whether to return the ranks as a hash instead of an array. """
-    tdigest: Mapping[str, Union[int, float, str]]
+    tdigest: Dict[str, Union[int, float, str]]
     """ T-Digest algorithm configuration. """
-    hdr: Mapping[str, int]
+    hdr: Dict[str, int]
     """ HDR histogram configuration. """
     missing: _Missing
     """ Value to use for documents missing the aggregation field. """
@@ -207,17 +206,17 @@ class ESAggTopHitsParams(_ESAggTopHitsParamsKeywords, total=False):
     """
     size: int
     """ The number of hits to return per bucket """
-    sort: Union[str, Sequence[Union[str, Mapping[str, Any]]], Mapping[str, Any]]
+    sort: Union[str, List[Union[str, Dict[str, Any]]], Dict[str, Any]]
     """ The sort of the hits """
-    _source: Union[_Boolean, str, Sequence[str], Mapping[str, Any]]
+    _source: Union[_Boolean, str, Sequence[str], Dict[str, Any]]
     """ Fields of the source to return """
-    highlight: Mapping[str, Any]
+    highlight: Dict[str, Any]
     """ Highlight definition """
     explain: _Boolean
     """ Return the score explanation """
-    script_fields: Mapping[str, Any]
+    script_fields: Dict[str, Any]
     """ Script fields """
-    docvalue_fields: Sequence[Union[str, Mapping[str, Any]]]
+    docvalue_fields: List[Union[str, Dict[str, Any]]]
     """ Doc value fields """
     stored_fields: Union[str, Sequence[str]]
     """ Stored fields """
@@ -233,9 +232,9 @@ class ESAggTopMetricsParams(TypedDict, total=False):
     """
     Represents the parameters for a top metrics aggregation in Elasticsearch.
     """
-    metrics: Required[Union[Mapping[str, str], Sequence[Mapping[str, str]]]]
+    metrics: Required[Union[Dict[str, str], List[Dict[str, str]]]]
     """ The fields to return (e.g. ``{'field': 'price'}``) """
-    sort: Required[Union[str, Mapping[str, Any], Sequence[Union[str, Mapping[str, Any]]]]]
+    sort: Required[Union[str, Dict[str, Any], List[Union[str, Dict[str, Any]]]]]
     """ The sort to select the top documents """
     size: int
     """ The number of top documents """
@@ -367,7 +366,7 @@ class ESAggMultiTermsParams(TypedDict, total=False):
     """
     Represents the parameters for a multi terms aggregation in Elasticsearch.
     """
-    terms: Required[Sequence[ESAggMultiTermsSource]]
+    terms: Required[List[ESAggMultiTermsSource]]
     """ The fields to aggregate on """
     size: int
     """ The number of buckets to return. """
@@ -407,17 +406,17 @@ class ESAggSignificantTermsParams(TypedDict, total=False):
     """ Terms to exclude """
     execution_hint: Literal['map', 'global_ordinals']
     """ Execution mode of the aggregation """
-    jlh: Mapping[str, Any]
+    jlh: Dict[str, Any]
     """ JLH score heuristic """
-    mutual_information: Mapping[str, Any]
+    mutual_information: Dict[str, Any]
     """ Mutual information heuristic """
-    chi_square: Mapping[str, Any]
+    chi_square: Dict[str, Any]
     """ Chi square heuristic """
-    gnd: Mapping[str, Any]
+    gnd: Dict[str, Any]
     """ Google normalized distance heuristic """
-    percentage: Mapping[str, Any]
+    percentage: Dict[str, Any]
     """ Percentage heuristic """
-    script_heuristic: Mapping[str, Any]
+    script_heuristic: Dict[str, Any]
     """ Script heuristic """
 
 
@@ -558,7 +557,7 @@ class ESAggRangeParams(TypedDict, total=False):
     """
     field: str
     """ The field to aggregate on. """
-    ranges: Required[Sequence[ESAggRange]]
+    ranges: Required[List[ESAggRange]]
     """ Array of range buckets (e.g., [{"to": 50}, {"from": 50, "to": 100}, {"from": 100}]). """
     keyed: _Boolean
     """ Whether to return buckets as a hash instead of an array. """
@@ -576,7 +575,7 @@ class ESAggDateRangeParams(TypedDict, total=False):
     """
     field: str
     """ The field to aggregate on. """
-    ranges: Required[Sequence[ESAggDateRange]]
+    ranges: Required[List[ESAggDateRange]]
     """ Array of date range buckets (e.g., [{"to": "2020-01-01"}, {"from": "2020-01-01"}]). """
     format: str
     """ Date format for parsing range values. """
@@ -594,7 +593,7 @@ class ESAggIpRangeParams(TypedDict, total=False):
     """
     field: Required[str]
     """ The field to aggregate on. """
-    ranges: Required[Sequence[ESAggIpRange]]
+    ranges: Required[List[ESAggIpRange]]
     """ Array of IP ranges or masks """
     keyed: _Boolean
     """ Whether to return buckets as a hash instead of an array. """
@@ -608,7 +607,7 @@ class ESAggGeoDistanceParams(TypedDict, total=False):
     """ The geo_point field """
     origin: Required[ESGeoPoint]
     """ The origin point """
-    ranges: Required[Sequence[ESAggRange]]
+    ranges: Required[List[ESAggRange]]
     """ Distance ranges """
     unit: str
     """ Distance unit (e.g. "km") """
@@ -630,7 +629,7 @@ class ESAggGeoGridParams(TypedDict, total=False):
     """ Maximum number of buckets to return """
     shard_size: int
     """ The number of buckets to return from each shard """
-    bounds: Union[ESGeoPoint, Mapping[str, Any]]
+    bounds: Union[ESGeoPoint, Dict[str, Any]]
     """ Bounding box to filter the points """
 
 
@@ -638,8 +637,9 @@ class ESAggFiltersParams(TypedDict, total=False):
     """
     Represents the parameters for a filters aggregation in Elasticsearch.
     """
-    filters: Required[Union[Mapping[str, ESQuery], Sequence[ESQuery]]]
-    """ Named (dict) or anonymous (list) filters, every filter is a bucket """
+    filters: Required[Dict[str, ESQueryClause]]
+    """ Named filters, every filter is a bucket (ES accepts a list too, but PyCharm can't check a union of a dict and
+    a list) """
     other_bucket: _Boolean
     """ Add a bucket for documents not matching any filter """
     other_bucket_key: str
@@ -652,7 +652,7 @@ class ESAggAdjacencyMatrixParams(TypedDict, total=False):
     """
     Represents the parameters for an adjacency matrix aggregation in Elasticsearch.
     """
-    filters: Required[Mapping[str, ESQuery]]
+    filters: Required[Dict[str, ESQueryClause]]
     """ Named filters """
     separator: str
     """ Separator of the filter names in the keys of intersections """
@@ -728,11 +728,11 @@ class ESAggCompositeParams(TypedDict, total=False):
     """
     Represents the parameters for a composite aggregation in Elasticsearch.
     """
-    sources: Required[Sequence[Mapping[str, Mapping[str, Mapping[str, Any]]]]]
+    sources: Required[List[Dict[str, Dict[str, Dict[str, Any]]]]]
     """ Value sources, e.g. ``[{'country': {'terms': {'field': 'country'}}}]`` """
     size: int
     """ The number of buckets to return """
-    after: Mapping[str, Any]
+    after: Dict[str, Any]
     """ Paginate: the after_key of the previous response """
 
 
@@ -795,7 +795,7 @@ class ESAggBucketScriptParams(TypedDict, total=False):
     """
     Represents the parameters for a bucket script or bucket selector aggregation in Elasticsearch.
     """
-    buckets_path: Required[Mapping[str, str]]
+    buckets_path: Required[Dict[str, str]]
     """ Script variable names and paths to the metrics """
     script: Required[ESScript]
     """ The script """
@@ -814,7 +814,7 @@ class ESAggBucketSortParams(_ESAggBucketSortParamsKeywords, total=False):
     """
     Represents the parameters for a bucket sort aggregation in Elasticsearch.
     """
-    sort: Sequence[Union[str, Mapping[str, Any]]]
+    sort: List[Union[str, Dict[str, Any]]]
     """ The sort of the buckets """
     size: int
     """ The number of buckets to return """
@@ -827,7 +827,7 @@ class ESAggBucketSortParams(_ESAggBucketSortParamsKeywords, total=False):
 #
 
 _ESAggKeywords = TypedDict('_ESAggKeywords', {
-    'global': Mapping[str, Any],
+    'global': Dict[str, Any],
 }, total=False)
 
 
@@ -876,11 +876,11 @@ class ESAgg(_ESAggKeywords, total=False):
     """ Geo bounds aggregation """
     geo_centroid: ESAggGeoCentroidParams
     """ Geo centroid aggregation """
-    scripted_metric: Mapping[str, Any]
+    scripted_metric: Dict[str, Any]
     """ Scripted metric aggregation """
-    matrix_stats: Mapping[str, Any]
+    matrix_stats: Dict[str, Any]
     """ Matrix stats aggregation """
-    t_test: Mapping[str, Any]
+    t_test: Dict[str, Any]
     """ T-test aggregation """
 
     # Bucket aggregations
@@ -890,7 +890,7 @@ class ESAgg(_ESAggKeywords, total=False):
     """ Multi terms aggregation """
     significant_terms: ESAggSignificantTermsParams
     """ Significant terms aggregation """
-    significant_text: Mapping[str, Any]
+    significant_text: Dict[str, Any]
     """ Significant text aggregation """
     rare_terms: ESAggRareTermsParams
     """ Rare terms aggregation """
@@ -900,7 +900,7 @@ class ESAgg(_ESAggKeywords, total=False):
     """ Date histogram aggregation """
     auto_date_histogram: ESAggAutoDateHistogramParams
     """ Auto date histogram aggregation """
-    variable_width_histogram: Mapping[str, Any]
+    variable_width_histogram: Dict[str, Any]
     """ Variable width histogram aggregation """
     range: ESAggRangeParams
     """ Range aggregation """
@@ -908,7 +908,7 @@ class ESAgg(_ESAggKeywords, total=False):
     """ Date range aggregation """
     ip_range: ESAggIpRangeParams
     """ IP range aggregation """
-    ip_prefix: Mapping[str, Any]
+    ip_prefix: Dict[str, Any]
     """ IP prefix aggregation """
     geo_distance: ESAggGeoDistanceParams
     """ Geo distance aggregation """
@@ -942,11 +942,11 @@ class ESAgg(_ESAggKeywords, total=False):
     """ Random sampler aggregation """
     composite: ESAggCompositeParams
     """ Composite aggregation (paginate all buckets) """
-    categorize_text: Mapping[str, Any]
+    categorize_text: Dict[str, Any]
     """ Categorize text aggregation """
-    frequent_item_sets: Mapping[str, Any]
+    frequent_item_sets: Dict[str, Any]
     """ Frequent item sets aggregation """
-    time_series: Mapping[str, Any]
+    time_series: Dict[str, Any]
     """ Time series aggregation """
 
     # Pipeline aggregations
@@ -982,24 +982,204 @@ class ESAgg(_ESAggKeywords, total=False):
     """ Bucket selector aggregation """
     bucket_sort: ESAggBucketSortParams
     """ Bucket sort aggregation """
-    bucket_count_ks_test: Mapping[str, Any]
+    bucket_count_ks_test: Dict[str, Any]
     """ Bucket count K-S test aggregation """
-    bucket_correlation: Mapping[str, Any]
+    bucket_correlation: Dict[str, Any]
     """ Bucket correlation aggregation """
-    inference: Mapping[str, Any]
+    inference: Dict[str, Any]
     """ Inference bucket aggregation """
 
     # Sub-aggregations and metadata
-    aggs: Mapping[str, 'ESAgg']
+    aggs: Dict[str, 'ESSubAgg']
     """ Sub-aggregations """
-    aggregations: Mapping[str, 'ESAgg']
+    aggregations: Dict[str, 'ESSubAgg']
     """ Sub-aggregations (long name) """
-    meta: Mapping[str, Any]
+    meta: Dict[str, Any]
+    """ Metadata, returned in the response """
+
+
+class ESSubAgg(_ESAggKeywords, total=False):
+    """
+    A sub-aggregation
+
+    It has the same keys as :class:`ESAgg`, and they are compatible with each other. It is a separate class (not a
+    subclass), so the type checkers check the sub-aggregations too: PyCharm doesn't check a type inside itself
+    (recursion), and pyright doesn't check the deeper levels of a recursive TypedDict subclass.
+
+    Its keys must be the same as the keys of ESAgg (tests/typecheck/check.py checks it).
+    """
+    # Metric aggregations
+    avg: ESAggFieldParams
+    """ Average aggregation """
+    sum: ESAggFieldParams
+    """ Sum aggregation """
+    min: ESAggFieldParams
+    """ Minimum aggregation """
+    max: ESAggFieldParams
+    """ Maximum aggregation """
+    cardinality: ESAggCardinalityParams
+    """ Cardinality aggregation (count distinct values) """
+    value_count: ESAggValueCountParams
+    """ Value count aggregation """
+    stats: ESAggStatsParams
+    """ Stats aggregation (count, min, max, avg, sum) """
+    extended_stats: ESAggExtendedStatsParams
+    """ Extended stats aggregation (includes variance, std deviation) """
+    percentiles: ESAggPercentilesParams
+    """ Percentiles aggregation """
+    percentile_ranks: ESAggPercentileRanksParams
+    """ Percentile ranks aggregation """
+    median_absolute_deviation: ESAggMedianAbsoluteDeviationParams
+    """ Median absolute deviation aggregation """
+    weighted_avg: ESAggWeightedAvgParams
+    """ Weighted average aggregation """
+    top_hits: ESAggTopHitsParams
+    """ Top hits aggregation """
+    top_metrics: ESAggTopMetricsParams
+    """ Top metrics aggregation """
+    string_stats: ESAggStringStatsParams
+    """ String stats aggregation """
+    boxplot: ESAggBoxplotParams
+    """ Boxplot aggregation """
+    rate: ESAggRateParams
+    """ Rate aggregation """
+    geo_bounds: ESAggGeoBoundsParams
+    """ Geo bounds aggregation """
+    geo_centroid: ESAggGeoCentroidParams
+    """ Geo centroid aggregation """
+    scripted_metric: Dict[str, Any]
+    """ Scripted metric aggregation """
+    matrix_stats: Dict[str, Any]
+    """ Matrix stats aggregation """
+    t_test: Dict[str, Any]
+    """ T-test aggregation """
+
+    # Bucket aggregations
+    terms: ESAggTermParams
+    """ Terms aggregation """
+    multi_terms: ESAggMultiTermsParams
+    """ Multi terms aggregation """
+    significant_terms: ESAggSignificantTermsParams
+    """ Significant terms aggregation """
+    significant_text: Dict[str, Any]
+    """ Significant text aggregation """
+    rare_terms: ESAggRareTermsParams
+    """ Rare terms aggregation """
+    histogram: ESAggHistogramParams
+    """ Histogram aggregation """
+    date_histogram: ESDateHistogramParams
+    """ Date histogram aggregation """
+    auto_date_histogram: ESAggAutoDateHistogramParams
+    """ Auto date histogram aggregation """
+    variable_width_histogram: Dict[str, Any]
+    """ Variable width histogram aggregation """
+    range: ESAggRangeParams
+    """ Range aggregation """
+    date_range: ESAggDateRangeParams
+    """ Date range aggregation """
+    ip_range: ESAggIpRangeParams
+    """ IP range aggregation """
+    ip_prefix: Dict[str, Any]
+    """ IP prefix aggregation """
+    geo_distance: ESAggGeoDistanceParams
+    """ Geo distance aggregation """
+    geohash_grid: ESAggGeoGridParams
+    """ Geohash grid aggregation """
+    geotile_grid: ESAggGeoGridParams
+    """ Geotile grid aggregation """
+    geohex_grid: ESAggGeoGridParams
+    """ Geohex grid aggregation """
+    filter: ESQuery
+    """ Filter aggregation: one bucket of the documents matching the query """
+    filters: ESAggFiltersParams
+    """ Filters aggregation: one bucket for each filter """
+    adjacency_matrix: ESAggAdjacencyMatrixParams
+    """ Adjacency matrix aggregation """
+    missing: ESAggMissingParams
+    """ Missing aggregation: one bucket of the documents without the field """
+    nested: ESAggNestedParams
+    """ Nested aggregation """
+    reverse_nested: ESAggReverseNestedParams
+    """ Reverse nested aggregation """
+    children: ESAggJoinParams
+    """ Children aggregation """
+    parent: ESAggJoinParams
+    """ Parent aggregation """
+    sampler: ESAggSamplerParams
+    """ Sampler aggregation """
+    diversified_sampler: ESAggDiversifiedSamplerParams
+    """ Diversified sampler aggregation """
+    random_sampler: ESAggRandomSamplerParams
+    """ Random sampler aggregation """
+    composite: ESAggCompositeParams
+    """ Composite aggregation (paginate all buckets) """
+    categorize_text: Dict[str, Any]
+    """ Categorize text aggregation """
+    frequent_item_sets: Dict[str, Any]
+    """ Frequent item sets aggregation """
+    time_series: Dict[str, Any]
+    """ Time series aggregation """
+
+    # Pipeline aggregations
+    avg_bucket: ESAggBucketsPathParams
+    """ Average bucket aggregation """
+    sum_bucket: ESAggBucketsPathParams
+    """ Sum bucket aggregation """
+    min_bucket: ESAggBucketsPathParams
+    """ Minimum bucket aggregation """
+    max_bucket: ESAggBucketsPathParams
+    """ Maximum bucket aggregation """
+    stats_bucket: ESAggBucketsPathParams
+    """ Stats bucket aggregation """
+    extended_stats_bucket: ESAggBucketsPathParams
+    """ Extended stats bucket aggregation """
+    percentiles_bucket: ESAggBucketsPathParams
+    """ Percentiles bucket aggregation """
+    cumulative_sum: ESAggBucketsPathParams
+    """ Cumulative sum aggregation """
+    cumulative_cardinality: ESAggBucketsPathParams
+    """ Cumulative cardinality aggregation """
+    derivative: ESAggBucketsPathParams
+    """ Derivative aggregation """
+    serial_diff: ESAggBucketsPathParams
+    """ Serial differencing aggregation """
+    moving_fn: ESAggMovingFnParams
+    """ Moving function aggregation """
+    normalize: ESAggNormalizeParams
+    """ Normalize aggregation """
+    bucket_script: ESAggBucketScriptParams
+    """ Bucket script aggregation """
+    bucket_selector: ESAggBucketScriptParams
+    """ Bucket selector aggregation """
+    bucket_sort: ESAggBucketSortParams
+    """ Bucket sort aggregation """
+    bucket_count_ks_test: Dict[str, Any]
+    """ Bucket count K-S test aggregation """
+    bucket_correlation: Dict[str, Any]
+    """ Bucket correlation aggregation """
+    inference: Dict[str, Any]
+    """ Inference bucket aggregation """
+
+    # Sub-aggregations and metadata
+    aggs: Dict[str, 'ESSubAgg']
+    """ Sub-aggregations """
+    aggregations: Dict[str, 'ESSubAgg']
+    """ Sub-aggregations (long name) """
+    meta: Dict[str, Any]
     """ Metadata, returned in the response """
 
 
 ESAggs: TypeAlias = Dict[str, ESAgg]
-""" ElasticSearch aggregations type definition """
+""" ElasticSearch aggregations type definition: aggregations by names """
+
+
+class ESNamedAggs(TypedDict, extra_items=ESAgg):  # type: ignore[call-arg]  # mypy doesn't support PEP 728 yet
+    """
+    Aggregations by names, the same as :data:`ESAggs`
+
+    It is a TypedDict with extra items (PEP 728), because PyCharm checks a dict literal argument only if the parameter
+    is a TypedDict. :meth:`esorm.model.ESModel.aggregate` accepts both.
+    """
 
 
 #

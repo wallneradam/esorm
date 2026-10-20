@@ -82,9 +82,27 @@ def check(tool: str, diags: Diagnostics, files: List[Path]) -> List[str]:
     return problems
 
 
+def check_copies() -> List[str]:
+    """
+    ESQueryClause and ESSubAgg are copies of ESQuery and ESAgg (see their docstrings), their keys must be the same
+    """
+    sys.path.insert(0, str(ROOT))
+    from esorm.query import ESQuery, ESQueryClause
+    from esorm.aggs import ESAgg, ESSubAgg
+
+    problems = []
+    for orig, copy in ((ESQuery, ESQueryClause), (ESAgg, ESSubAgg)):
+        orig_keys = {k: str(v) for k, v in orig.__annotations__.items()}
+        copy_keys = {k: str(v) for k, v in copy.__annotations__.items()}
+        if orig_keys != copy_keys:
+            diff = sorted(set(orig_keys.items()) ^ set(copy_keys.items()))
+            problems.append(f"{copy.__name__} must have the same keys as {orig.__name__}, differences: {diff}")
+    return problems
+
+
 def main() -> int:
     files = sorted(HERE.glob('ok_*.py')) + sorted(HERE.glob('errors*.py'))
-    problems: List[str] = []
+    problems: List[str] = check_copies()
     summary: List[Tuple[str, int]] = []
     for tool, runner in (('pyright', run_pyright), ('mypy', run_mypy)):
         diags = runner(files)
