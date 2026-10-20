@@ -43,5 +43,7 @@ async def builder_errors() -> None:
     q.mustt.append(Term('a', 1))  # E: unknown clause list
     q.must = [Term('a', 1)]  # E: use Clauses([...])
     q.must.append({'trem': {'a': 1}})  # E: typo in the query dict
+    n = Nested('comments')
+    n.query.set({'trem': {'a': 1}})  # E: typo in the query dict
     Terms('tag', {'index': 'users'})  # E: id and path are missing from the terms lookup
     FunctionScore(field_value_factor={'feild': 'likes'})  # E: typo in field_value_factor
