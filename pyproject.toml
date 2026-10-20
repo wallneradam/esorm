@@ -76,7 +76,7 @@ include = ["esorm*"]
 
 [tool.setuptools.package-data]
 # PEP 561: the package has inline type hints
-esorm = ["py.typed"]
+esorm = ["py.typed", "*.pyi"]
 
 [tool.pytest.ini_options]
 filterwarnings = ["ignore::DeprecationWarning"]

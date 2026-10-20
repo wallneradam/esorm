@@ -82,27 +82,44 @@ def check(tool: str, diags: Diagnostics, files: List[Path]) -> List[str]:
     return problems
 
 
-def check_copies() -> List[str]:
+def check_stubs() -> List[str]:
     """
-    ESQueryClause and ESSubAgg are copies of ESQuery and ESAgg (see their docstrings), their keys must be the same
+    The generated stubs must be up to date, and the parameters of the method descriptors in _model_methods.pyi must
+    be the same as the parameters of the runtime methods
     """
+    import ast
+    import inspect
     sys.path.insert(0, str(ROOT))
-    from esorm.query import ESQuery, ESQueryClause
-    from esorm.aggs import ESAgg, ESSubAgg
+    sys.path.insert(0, str(ROOT / 'tools'))
+    import generate_stubs
+    from esorm import ESModel
 
     problems = []
-    for orig, copy in ((ESQuery, ESQueryClause), (ESAgg, ESSubAgg)):
-        orig_keys = {k: str(v) for k, v in orig.__annotations__.items()}
-        copy_keys = {k: str(v) for k, v in copy.__annotations__.items()}
-        if orig_keys != copy_keys:
-            diff = sorted(set(orig_keys.items()) ^ set(copy_keys.items()))
-            problems.append(f"{copy.__name__} must have the same keys as {orig.__name__}, differences: {diff}")
+    for module in generate_stubs.MODULES:
+        stub_file = ROOT / 'esorm' / f'{module.name}.pyi'
+        if not stub_file.exists() or stub_file.read_text() != generate_stubs.generate(module):
+            problems.append(f"{stub_file.relative_to(ROOT)} is not up to date, run `python tools/generate_stubs.py`")
+
+    stub = ast.parse((ROOT / 'esorm' / '_model_methods.pyi').read_text())
+    classes = {n.name: n for n in stub.body if isinstance(n, ast.ClassDef)}
+    for method, cls_name in (('search', '_Search'), ('search_one', '_SearchOne'), ('scan', '_Scan'),
+                             ('scan_batches', '_ScanBatches')):
+        runtime = [p for p in inspect.signature(getattr(ESModel, method)).parameters]
+        for call in (n for n in classes[cls_name].body if isinstance(n, ast.FunctionDef) and n.name == '__call__'):
+            args = call.args
+            params = [a.arg for a in args.posonlyargs + args.args + args.kwonlyargs][1:]  # without self
+            if args.kwarg:
+                params.append(args.kwarg.arg)
+            params = [p for p in params if p != '_pycharm_workaround']
+            if params != runtime:
+                problems.append(f"_model_methods.pyi: the parameters of {cls_name}.__call__ {params} are not the same "
+                                f"as the parameters of ESModel.{method} {runtime}")
     return problems
 
 
 def main() -> int:
     files = sorted(HERE.glob('ok_*.py')) + sorted(HERE.glob('errors*.py'))
-    problems: List[str] = check_copies()
+    problems: List[str] = check_stubs()
     summary: List[Tuple[str, int]] = []
     for tool, runner in (('pyright', run_pyright), ('mypy', run_mypy)):
         diags = runner(files)

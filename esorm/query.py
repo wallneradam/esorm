@@ -11,6 +11,9 @@ query variables::
     if name:
         must.append({'match': {'name': name}})
     query: ESQuery = {'bool': {'must': must}}
+
+Type checkers use the stub query.pyi, which is generated from this module by ``tools/generate_stubs.py``, run it
+after the types are changed.
 """
 from typing import Literal, Union, Any, Dict, List, Sequence, Iterator, Protocol, TypeVar, SupportsIndex, overload, \
     get_args
@@ -1271,161 +1274,13 @@ class ESQuery(TypedDict, total=False):
     """ Neural sparse query structure (OpenSearch) """
 
 
-class ESQueryClause(TypedDict, total=False):
-    """
-    A query clause of a compound query (e.g. the clauses of ``bool.must``, ``nested.query``)
+ESQueryClause: TypeAlias = ESQuery
+"""
+A query clause of a compound query (e.g. the clauses of ``bool.must``, ``nested.query``), the same as ESQuery
 
-    It has the same keys as :class:`ESQuery`, and they are compatible with each other: every ESQuery can be used as a
-    clause. It is a separate class (not a subclass), so the type checkers check the clauses too: PyCharm doesn't check
-    a type inside itself (recursion), and pyright doesn't check the deeper levels of a recursive TypedDict subclass.
-
-    Its keys must be the same as the keys of ESQuery (tests/typecheck/check.py checks it).
-    """
-    # Compound queries
-    bool: ESBool
-    """ Bool query structure """
-    boosting: ESBoosting
-    """ Boosting query structure """
-    constant_score: ESConstantScore
-    """ Constant score query structure """
-    dis_max: ESDisMax
-    """ Disjunction max query structure """
-    function_score: ESFunctionScore
-    """ Function score query structure """
-
-    # Full text queries
-    match: Dict[str, Union[ESMatch, _Text]]
-    """ Match query structure: ``{field: {'query': value, ...}}`` or ``{field: value}`` """
-    match_phrase: Dict[str, Union[ESMatchPhrase, str]]
-    """ Match phrase query structure: ``{field: {'query': value, ...}}`` or ``{field: value}`` """
-    match_phrase_prefix: Dict[str, Union[ESMatchPhrasePrefix, str]]
-    """ Match phrase prefix query structure: ``{field: {'query': value, ...}}`` or ``{field: value}`` """
-    match_bool_prefix: Dict[str, Union[ESMatchBoolPrefix, str]]
-    """ Match bool prefix query structure: ``{field: {'query': value, ...}}`` or ``{field: value}`` """
-    multi_match: ESMultiMatch
-    """ MultiMatch query structure """
-    combined_fields: ESCombinedFields
-    """ Combined fields query structure """
-    query_string: ESQueryString
-    """ Query string query structure """
-    simple_query_string: ESSimpleQueryString
-    """ Simple query string query structure """
-    intervals: Dict[str, Dict[str, Any]]
-    """ Intervals query structure """
-
-    # Term level queries
-    term: Dict[str, Union[ESTerm, ESValue]]
-    """ Term query structure: ``{field: {'value': value, ...}}`` or ``{field: value}`` """
-    terms: Dict[str, Union[SequenceNotStr[ESValue], ESTermsLookup]]
-    """ Terms query structure: ``{field: [value, ...]}`` or ``{field: <terms lookup>}`` """
-    terms_set: Dict[str, ESTermsSet]
-    """ Terms set query structure """
-    range: Dict[str, ESRange]
-    """ Range query structure: ``{field: {'gte': value, ...}}`` """
-    exists: ESExists
-    """ Exists query structure """
-    ids: ESIds
-    """ Ids query structure """
-    prefix: Dict[str, Union[ESPrefix, str]]
-    """ Prefix query structure: ``{field: {'value': value, ...}}`` or ``{field: value}`` """
-    wildcard: Dict[str, Union[ESWildcard, str]]
-    """ Wildcard query structure: ``{field: {'value': value, ...}}`` or ``{field: value}`` """
-    regexp: Dict[str, Union[ESRegexp, str]]
-    """ Regexp query structure: ``{field: {'value': value, ...}}`` or ``{field: value}`` """
-    fuzzy: Dict[str, Union[ESFuzzy, str]]
-    """ Fuzzy query structure: ``{field: {'value': value, ...}}`` or ``{field: value}`` """
-
-    # Match all / none
-    match_all: ESMatchAll
-    """ Match all query structure """
-    match_none: ESMatchNone
-    """ Match none query structure """
-
-    # Geo queries, field name and parameters are in the same dict
-    geo_distance: Dict[str, _GeoParam]
-    """ Geo distance query structure: ``{'distance': '10km', field: <geo point>}`` """
-    geo_bounding_box: Dict[str, _GeoParam]
-    """ Geo bounding box query structure: ``{field: {'top_left': .., 'bottom_right': ..}}`` """
-    geo_shape: Dict[str, Any]
-    """ Geo shape query structure """
-    geo_polygon: Dict[str, Any]
-    """ Geo polygon query structure (deprecated) """
-    geo_grid: Dict[str, Any]
-    """ Geo grid query structure """
-    shape: Dict[str, Any]
-    """ Shape query structure """
-
-    # Joining queries
-    nested: ESNested
-    """ Nested query structure """
-    has_child: ESHasChild
-    """ Has child query structure """
-    has_parent: ESHasParent
-    """ Has parent query structure """
-    parent_id: ESParentId
-    """ Parent id query structure """
-
-    # Vector and semantic queries
-    knn: ESKnnQuery
-    """ KNN query structure """
-    semantic: ESSemantic
-    """ Semantic query structure """
-    sparse_vector: ESSparseVector
-    """ Sparse vector query structure """
-    text_expansion: Dict[str, Any]
-    """ Text expansion query structure (deprecated, use sparse_vector) """
-    weighted_tokens: Dict[str, Any]
-    """ Weighted tokens query structure """
-
-    # Specialized queries
-    script: ESScriptQuery
-    """ Script query structure """
-    script_score: ESScriptScore
-    """ Script score query structure """
-    distance_feature: ESDistanceFeature
-    """ Distance feature query structure """
-    more_like_this: ESMoreLikeThis
-    """ More like this query structure """
-    rank_feature: ESRankFeature
-    """ Rank feature query structure """
-    percolate: ESPercolate
-    """ Percolate query structure """
-    wrapper: ESWrapper
-    """ Wrapper query structure """
-    pinned: ESPinned
-    """ Pinned query structure """
-    rule: Dict[str, Any]
-    """ Rule query structure """
-
-    # Span queries
-    span_containing: Dict[str, Any]
-    """ Span containing query structure """
-    span_field_masking: Dict[str, Any]
-    """ Span field masking query structure """
-    field_masking_span: Dict[str, Any]
-    """ Span field masking query structure (old name) """
-    span_first: Dict[str, Any]
-    """ Span first query structure """
-    span_multi: Dict[str, Any]
-    """ Span multi-term query structure """
-    span_near: Dict[str, Any]
-    """ Span near query structure """
-    span_not: Dict[str, Any]
-    """ Span not query structure """
-    span_or: Dict[str, Any]
-    """ Span or query structure """
-    span_term: Dict[str, Any]
-    """ Span term query structure """
-    span_within: Dict[str, Any]
-    """ Span within query structure """
-
-    # OpenSearch specific queries
-    hybrid: ESHybrid
-    """ Hybrid query structure (OpenSearch) """
-    neural: Dict[str, Any]
-    """ Neural query structure (OpenSearch) """
-    neural_sparse: Dict[str, Any]
-    """ Neural sparse query structure (OpenSearch) """
+Type checkers see it as a copy of ESQuery, with another copy for every level of nesting (see query.pyi), because
+PyCharm doesn't check a type inside itself (recursion).
+"""
 
 
 #

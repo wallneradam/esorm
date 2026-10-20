@@ -15,6 +15,9 @@ are a dict of them: :class:`ESAggs`::
     aggs = await User.aggregate(aggs_def)
     for bucket in aggs['countries']['buckets']:
         print(bucket['key'], bucket['doc_count'], bucket['avg_age']['value'])
+
+Type checkers use the stub aggs.pyi, which is generated from this module by ``tools/generate_stubs.py``, run it
+after the types are changed.
 """
 from typing import Dict, List, Union, Any, Literal, Optional, Sequence, overload
 from typing_extensions import TypeAlias, TypedDict, Required
@@ -998,175 +1001,13 @@ class ESAgg(_ESAggKeywords, total=False):
     """ Metadata, returned in the response """
 
 
-class ESSubAgg(_ESAggKeywords, total=False):
-    """
-    A sub-aggregation
+ESSubAgg: TypeAlias = ESAgg
+"""
+A sub-aggregation, the same as ESAgg
 
-    It has the same keys as :class:`ESAgg`, and they are compatible with each other. It is a separate class (not a
-    subclass), so the type checkers check the sub-aggregations too: PyCharm doesn't check a type inside itself
-    (recursion), and pyright doesn't check the deeper levels of a recursive TypedDict subclass.
-
-    Its keys must be the same as the keys of ESAgg (tests/typecheck/check.py checks it).
-    """
-    # Metric aggregations
-    avg: ESAggFieldParams
-    """ Average aggregation """
-    sum: ESAggFieldParams
-    """ Sum aggregation """
-    min: ESAggFieldParams
-    """ Minimum aggregation """
-    max: ESAggFieldParams
-    """ Maximum aggregation """
-    cardinality: ESAggCardinalityParams
-    """ Cardinality aggregation (count distinct values) """
-    value_count: ESAggValueCountParams
-    """ Value count aggregation """
-    stats: ESAggStatsParams
-    """ Stats aggregation (count, min, max, avg, sum) """
-    extended_stats: ESAggExtendedStatsParams
-    """ Extended stats aggregation (includes variance, std deviation) """
-    percentiles: ESAggPercentilesParams
-    """ Percentiles aggregation """
-    percentile_ranks: ESAggPercentileRanksParams
-    """ Percentile ranks aggregation """
-    median_absolute_deviation: ESAggMedianAbsoluteDeviationParams
-    """ Median absolute deviation aggregation """
-    weighted_avg: ESAggWeightedAvgParams
-    """ Weighted average aggregation """
-    top_hits: ESAggTopHitsParams
-    """ Top hits aggregation """
-    top_metrics: ESAggTopMetricsParams
-    """ Top metrics aggregation """
-    string_stats: ESAggStringStatsParams
-    """ String stats aggregation """
-    boxplot: ESAggBoxplotParams
-    """ Boxplot aggregation """
-    rate: ESAggRateParams
-    """ Rate aggregation """
-    geo_bounds: ESAggGeoBoundsParams
-    """ Geo bounds aggregation """
-    geo_centroid: ESAggGeoCentroidParams
-    """ Geo centroid aggregation """
-    scripted_metric: Dict[str, Any]
-    """ Scripted metric aggregation """
-    matrix_stats: Dict[str, Any]
-    """ Matrix stats aggregation """
-    t_test: Dict[str, Any]
-    """ T-test aggregation """
-
-    # Bucket aggregations
-    terms: ESAggTermParams
-    """ Terms aggregation """
-    multi_terms: ESAggMultiTermsParams
-    """ Multi terms aggregation """
-    significant_terms: ESAggSignificantTermsParams
-    """ Significant terms aggregation """
-    significant_text: Dict[str, Any]
-    """ Significant text aggregation """
-    rare_terms: ESAggRareTermsParams
-    """ Rare terms aggregation """
-    histogram: ESAggHistogramParams
-    """ Histogram aggregation """
-    date_histogram: ESDateHistogramParams
-    """ Date histogram aggregation """
-    auto_date_histogram: ESAggAutoDateHistogramParams
-    """ Auto date histogram aggregation """
-    variable_width_histogram: Dict[str, Any]
-    """ Variable width histogram aggregation """
-    range: ESAggRangeParams
-    """ Range aggregation """
-    date_range: ESAggDateRangeParams
-    """ Date range aggregation """
-    ip_range: ESAggIpRangeParams
-    """ IP range aggregation """
-    ip_prefix: Dict[str, Any]
-    """ IP prefix aggregation """
-    geo_distance: ESAggGeoDistanceParams
-    """ Geo distance aggregation """
-    geohash_grid: ESAggGeoGridParams
-    """ Geohash grid aggregation """
-    geotile_grid: ESAggGeoGridParams
-    """ Geotile grid aggregation """
-    geohex_grid: ESAggGeoGridParams
-    """ Geohex grid aggregation """
-    filter: ESQuery
-    """ Filter aggregation: one bucket of the documents matching the query """
-    filters: ESAggFiltersParams
-    """ Filters aggregation: one bucket for each filter """
-    adjacency_matrix: ESAggAdjacencyMatrixParams
-    """ Adjacency matrix aggregation """
-    missing: ESAggMissingParams
-    """ Missing aggregation: one bucket of the documents without the field """
-    nested: ESAggNestedParams
-    """ Nested aggregation """
-    reverse_nested: ESAggReverseNestedParams
-    """ Reverse nested aggregation """
-    children: ESAggJoinParams
-    """ Children aggregation """
-    parent: ESAggJoinParams
-    """ Parent aggregation """
-    sampler: ESAggSamplerParams
-    """ Sampler aggregation """
-    diversified_sampler: ESAggDiversifiedSamplerParams
-    """ Diversified sampler aggregation """
-    random_sampler: ESAggRandomSamplerParams
-    """ Random sampler aggregation """
-    composite: ESAggCompositeParams
-    """ Composite aggregation (paginate all buckets) """
-    categorize_text: Dict[str, Any]
-    """ Categorize text aggregation """
-    frequent_item_sets: Dict[str, Any]
-    """ Frequent item sets aggregation """
-    time_series: Dict[str, Any]
-    """ Time series aggregation """
-
-    # Pipeline aggregations
-    avg_bucket: ESAggBucketsPathParams
-    """ Average bucket aggregation """
-    sum_bucket: ESAggBucketsPathParams
-    """ Sum bucket aggregation """
-    min_bucket: ESAggBucketsPathParams
-    """ Minimum bucket aggregation """
-    max_bucket: ESAggBucketsPathParams
-    """ Maximum bucket aggregation """
-    stats_bucket: ESAggBucketsPathParams
-    """ Stats bucket aggregation """
-    extended_stats_bucket: ESAggBucketsPathParams
-    """ Extended stats bucket aggregation """
-    percentiles_bucket: ESAggBucketsPathParams
-    """ Percentiles bucket aggregation """
-    cumulative_sum: ESAggBucketsPathParams
-    """ Cumulative sum aggregation """
-    cumulative_cardinality: ESAggBucketsPathParams
-    """ Cumulative cardinality aggregation """
-    derivative: ESAggBucketsPathParams
-    """ Derivative aggregation """
-    serial_diff: ESAggBucketsPathParams
-    """ Serial differencing aggregation """
-    moving_fn: ESAggMovingFnParams
-    """ Moving function aggregation """
-    normalize: ESAggNormalizeParams
-    """ Normalize aggregation """
-    bucket_script: ESAggBucketScriptParams
-    """ Bucket script aggregation """
-    bucket_selector: ESAggBucketScriptParams
-    """ Bucket selector aggregation """
-    bucket_sort: ESAggBucketSortParams
-    """ Bucket sort aggregation """
-    bucket_count_ks_test: Dict[str, Any]
-    """ Bucket count K-S test aggregation """
-    bucket_correlation: Dict[str, Any]
-    """ Bucket correlation aggregation """
-    inference: Dict[str, Any]
-    """ Inference bucket aggregation """
-
-    # Sub-aggregations and metadata
-    aggs: Dict[str, 'ESSubAgg']
-    """ Sub-aggregations """
-    aggregations: Dict[str, 'ESSubAgg']
-    """ Sub-aggregations (long name) """
-    meta: Dict[str, Any]
-    """ Metadata, returned in the response """
+Type checkers see it as a copy of ESAgg, with another copy for every level of nesting (see aggs.pyi), because
+PyCharm doesn't check a type inside itself (recursion).
+"""
 
 
 ESAggs: TypeAlias = Dict[str, ESAgg]

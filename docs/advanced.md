@@ -260,10 +260,12 @@ async def test_source():
     assert doc.f_int == 1
 
     doc = await Model.search_one_by_fields(dict(_id=doc_id), _source=['f_str'])
+    assert doc is not None
     assert doc.f_str == 'b'
     assert doc.f_int == 0
 
     doc = await Model.search_one_by_fields(dict(_id=doc_id), _source=['f_int'])
+    assert doc is not None
     assert doc.f_str == 'a'
     assert doc.f_int == 1
 
