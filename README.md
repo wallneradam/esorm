@@ -1014,8 +1014,8 @@ with Bool() as q:
 #          must_not=[Exists('deleted_at')])
 ```
 
-`q.to_query()` returns the query dict, which can be given to `search()`, `count()` or any other method:
-`users = await User.search(q.to_query())`. The result:
+The search methods accept the builder queries directly: `users = await User.search(q)`, and `q.to_query()` returns
+the query dict:
 
 ```json
 {

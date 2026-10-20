@@ -2,12 +2,13 @@
 """
 Correct usage of the query builder, type checkers must not report anything here
 """
-from typing import List, Optional
+from typing import Dict, List, Optional
 from datetime import date, datetime
 from uuid import UUID
 
-from esorm import ESModel
+from esorm import ESModel, Pagination, Sort
 from esorm.query import ESQuery
+from esorm.aggs import ESAggs
 from esorm.builder import (Query, QueryLike, Clauses, Bool, Boosting, ConstantScore, DisMax, FunctionScore,
                            Term, Terms, TermsSet, Range, Exists, Ids, Prefix, Wildcard, Regexp, Fuzzy,
                            Match, MatchPhrase, MatchPhrasePrefix, MatchBoolPrefix, MultiMatch, QueryString,
@@ -40,6 +41,34 @@ async def parameters(uid: UUID) -> None:
     await User.aggregate({'ages': {'terms': {'field': 'age'}}}, query=q.to_query())
     async for user in User.scan(q.to_query()):
         print(user.name)
+
+    # Builder queries can be given directly too
+    users2: List[User] = await User.search(q)
+    users3: List[User] = await User.search(q, page_size=10, page=2, sort='age', res_dict=False)
+    by_id: Dict[str, User] = await User.search(Term('name', 'John'), res_dict=True)
+    print(users2[0].name, users3, by_id['1'].age)
+    user2 = await User.search_one(Match('name', 'John'))
+    if user2 is not None:
+        print(user2.name)
+    count: int = await User.count(Term('active', True))
+    print(count)
+    aggs_def: ESAggs = {'ages': {'terms': {'field': 'age'}}}
+    await User.aggregate(aggs_def, query=q)
+    aggs = await User.aggregate({'ages': {'terms': {'field': 'age'}}}, query=q)
+    for bucket in aggs['ages']['buckets']:
+        print(bucket['key'])
+    async for user in User.scan(q, batch_size=100):
+        print(user.name)
+    async for batch in User.scan_batches(Range('age', gte=18)):
+        print(len(batch))
+    # Query dicts still work as before
+    await User.search({'term': {'name': 'John'}})
+    await User.count({'term': {'name': 'John'}})
+    # Decorated models
+    paginated = Pagination(page=1, page_size=10)(User)
+    sorted_users = Sort(sort='age')(User)
+    await paginated.search(q)
+    await sorted_users.search(q)
 
     # Values
     Term('id', uid)

@@ -2,8 +2,9 @@
 # 🏗 Query builder
 
 The query builder (`esorm.builder`) builds ElasticSearch queries from classes instead of nested dicts. It produces
-**exactly the same query dict** (`ESQuery`) as you would write by hand, so everything that accepts a query dict
-accepts its result. It doesn't run anything, there is no `await` in it: it only builds the query.
+**exactly the same query dict** (`ESQuery`) as you would write by hand. The search methods of the models accept the
+builder queries directly, and `to_query()` returns the query dict for everything else. The builder doesn't run
+anything, there is no `await` in it: it only builds the query.
 
 - [Why a query builder](#why-a-query-builder)
 - [Quick start](#builder-quick-start)
@@ -108,14 +109,15 @@ async def search_users():
             Range('age', gte=18)
             Term('country', 'HU')
 
-    users = await User.search(q.to_query())
+    users = await User.search(q)
     for user in users:
         print(user.name)
 ```
 
 1. Import the query clauses from `esorm.builder`.
 2. Build the query with parameters, `with` blocks or operators.
-3. Call `to_query()` to get the query dict, and give it to `search()`, `count()` or any other method.
+3. Give it to `search()`, `count()` or any other method of the model. If you need the query dict itself, call
+   `to_query()`.
 
 <a id="two-ways-to-build-a-query"></a>
 ## Two ways to build a query: parameters and `with` blocks
@@ -460,7 +462,8 @@ Some details:
 <a id="using-the-built-query"></a>
 ## Using the built query
 
-`to_query()` returns the query dict, it can be given to every method which needs a query:
+Every method of the models which has a query parameter accepts builder queries too: `search()`, `search_one()`,
+`count()`, `aggregate()`, `scan()` and `scan_batches()`, also on models decorated with `Pagination` or `Sort`:
 
 ```python
 from esorm import ESModel
@@ -476,16 +479,18 @@ class User(ESModel):
 
 async def examples():
     q = Bool(must=[Match('name', 'John')], filter=[Range('age', gte=18)])
-    query = q.to_query()
 
-    users = await User.search(query, page_size=10, sort='age')
-    user = await User.search_one(query)
-    count = await User.count(query)
-    aggs = await User.aggregate({'countries': {'terms': {'field': 'country'}}}, query=query)
-    async for user in User.scan(query):
+    users = await User.search(q, page_size=10, sort='age')
+    user = await User.search_one(q)
+    count = await User.count(q)
+    aggs = await User.aggregate({'countries': {'terms': {'field': 'country'}}}, query=q)
+    async for user in User.scan(q):
         print(user.name)
     print(users, user, count, aggs)
 ```
+
+`to_query()` returns the query dict (`ESQuery`), the methods call it too. Use it if you need the dict itself, e.g. to
+put it into a query dict, to log it, or to give it to the ES client directly (`esorm.es.search(query=...)`).
 
 Things worth knowing:
 
@@ -543,7 +548,7 @@ async def search_products(search: Optional[str] = None,
         q.filter += Range('price', gte=min_price, lte=max_price)  # None is left out
     if categories:
         q.filter += Terms('category', categories)
-    return await Product.search(q.to_query())
+    return await Product.search(q)
 ```
 
 If no clause is added, the result is `{'bool': {}}`, which matches all documents, so the empty search form returns
@@ -1103,13 +1108,16 @@ async def mistakes():
     Boosting(Term('a', 1), Term('b', 2))  # Error: negative_boost is required
     Bool(must=[{'trem': {'name': 'x'}}])  # Error: query dicts are checked too
     Bool(shuld=[Term('a', 1)])  # Error: no parameter named "shuld"
-    await User.search(Term('name', 'x'))  # Error: use to_query()
+    await User.count('x')  # Error: neither a query dict nor a builder query
 ```
 
 Notes:
 
-- `to_query()` returns `ESQuery`, the same type the query dicts have. The search methods need `ESQuery`, so
-  `User.search(q)` without `to_query()` is reported (and it would fail at runtime too).
+- The search methods have separate overloads for query dicts and builder queries (not a union), because PyCharm
+  doesn't check a dict literal against a union of a `TypedDict` and something else. So the query dicts are checked
+  as before, and the results are typed (`search()` returns a list of models) with both.
+- `to_query()` returns `ESQuery`, the same type the query dicts have. A builder query where a query dict is needed
+  (e.g. `query: ESQuery = Bool()`) is reported, use `to_query()` there.
 - Field names are strings, so a typo in a field name is not reported, like in query dicts. ES doesn't report it
   either, the query just doesn't match anything.
 - To replace a clause list use `q.must = Clauses([...])` (or `clear()` and `extend()`), not a plain list: mypy can't

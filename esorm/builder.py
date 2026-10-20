@@ -17,9 +17,10 @@ doesn't run anything. Compound queries can be built in two ways, which can be mi
         with q.filter:
             Term('active', True)
 
-The result is the query dict::
+The search methods of the models accept builder queries, and :meth:`Query.to_query` returns the query dict::
 
-    users = await User.search(q.to_query())
+    users = await User.search(q)
+    query = q.to_query()
 
 See the Query Builder chapter of the documentation for details.
 """

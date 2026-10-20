@@ -29,7 +29,12 @@ async def builder_errors() -> None:
     Bool(must=['x'])  # E: a string is not a query
     Bool(shuld=[Term('a', 1)])  # E: typo in bool
     Bool(minimum_should_match=[1])  # E: wrong type
-    await User.search(Term('name', 'x'))  # E: use to_query()
+    await User.search(1)  # E: not a query
+    await User.search_one('x')  # E: not a query
+    await User.count('x')  # E: not a query
+    await User.aggregate({'ages': {'terms': {'field': 'age'}}}, query=1)  # E: not a query
+    users = await User.search(Term('name', 'x'))
+    print(users.items())  # E: the result is a list
     query: ESQuery = Bool()  # E: use to_query()
     print(query)
     q = Bool()
