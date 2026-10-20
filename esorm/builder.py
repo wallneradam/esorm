@@ -57,6 +57,11 @@ __all__ = [
 QueryLike: TypeAlias = Union['Query', ESQuery]
 """ A query clause: a builder query or a query dict """
 
+# PyCharm doesn't check a dict literal against a union of a TypedDict and something else (e.g. Optional), it reports
+# even the correct dicts. So the methods which often get dict literals have separate overloads for the TypedDicts, and
+# the optional TypedDict parameters have a TypedDict type with this default.
+_UNSET: Any = None
+
 _MultiMatchType: TypeAlias = Literal['best_fields', 'most_fields', 'cross_fields', 'phrase', 'phrase_prefix',
                                      'bool_prefix']
 _ValidationMethod: TypeAlias = Literal['STRICT', 'IGNORE_MALFORMED', 'COERCE']
@@ -245,6 +250,12 @@ class Clauses(_Collector):
         if clauses is not None:
             self.extend(clauses)
 
+    @overload
+    def append(self, clause: ESQuery) -> None: ...
+
+    @overload
+    def append(self, clause: 'Query') -> None: ...
+
     def append(self, clause: QueryLike) -> None:
         """
         Add a query clause
@@ -338,6 +349,12 @@ class Clause(_Collector):
         self._items: List[QueryLike] = []
         if query is not None:
             self.set(query)
+
+    @overload
+    def set(self, query: ESQuery) -> None: ...
+
+    @overload
+    def set(self, query: 'Query') -> None: ...
 
     def set(self, query: QueryLike) -> None:
         """
@@ -674,11 +691,11 @@ class FunctionScore(_Compound):
     """
 
     def __init__(self, query: Optional[QueryLike] = None, *,
-                 functions: Optional[List[ESScoreFunction]] = None,
+                 functions: List[ESScoreFunction] = _UNSET,
                  weight: Optional[float] = None,
-                 field_value_factor: Optional[ESFieldValueFactor] = None,
-                 random_score: Optional[ESRandomScore] = None,
-                 script_score: Optional[ESScriptScoreFunction] = None,
+                 field_value_factor: ESFieldValueFactor = _UNSET,
+                 random_score: ESRandomScore = _UNSET,
+                 script_score: ESScriptScoreFunction = _UNSET,
                  boost_mode: Optional[Literal['multiply', 'replace', 'sum', 'avg', 'max', 'min']] = None,
                  score_mode: Optional[Literal['multiply', 'sum', 'avg', 'first', 'max', 'min']] = None,
                  max_boost: Optional[float] = None,
@@ -773,6 +790,16 @@ class Terms(Query):
     :param boost: Boosting value of the query
     :param name: Name of the query, it is returned in ``matched_queries`` (``_name``)
     """
+
+    @overload
+    def __init__(self, field: str, values: SequenceNotStr[ESValue], *,
+                 boost: Optional[float] = None,
+                 name: Optional[str] = None) -> None: ...
+
+    @overload
+    def __init__(self, field: str, values: ESTermsLookup, *,
+                 boost: Optional[float] = None,
+                 name: Optional[str] = None) -> None: ...
 
     def __init__(self, field: str, values: Union[SequenceNotStr[ESValue], ESTermsLookup], *,
                  boost: Optional[float] = None,

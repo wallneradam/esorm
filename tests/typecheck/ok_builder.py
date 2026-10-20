@@ -23,9 +23,10 @@ class User(ESModel):
 
 
 async def parameters(uid: UUID) -> None:
+    country_hu: ESQuery = {'term': {'country': 'HU'}}
     q = Bool(
         must=[Match('name', 'John'), Range('age', gte=18, lt=65)],
-        filter=[Term('active', True), {'term': {'country': 'HU'}}],  # a query dict is a clause too
+        filter=[Term('active', True), Raw({'term': {'country': 'HU'}}), country_hu],  # query dicts are clauses too
         must_not=Exists('deleted_at'),  # a single builder query
         minimum_should_match=1,
     )
@@ -162,6 +163,11 @@ def dynamic(name: Optional[str], min_age: Optional[int], tags: List[str]) -> ESQ
     if tags:
         q.filter += [Terms('tag', tags), Exists('tag')]
     q.should = Clauses([Term('featured', True)])
+    q.must.append({'term': {'country': 'HU'}})
+    q.must_not += Exists('deleted_at')
+    n = Nested('comments')
+    n.query.set({'term': {'comments.author': 'john'}})
+    n.query.set(Term('comments.author', 'john'))
     clauses: Clauses = q.filter
     first: QueryLike = clauses[0]
     print(first, len(q.must), bool(q.should))

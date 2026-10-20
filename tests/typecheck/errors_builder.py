@@ -4,7 +4,8 @@ Incorrect usage of the query builder: type checkers must report every line marke
 """
 from esorm import ESModel
 from esorm.query import ESQuery
-from esorm.builder import Bool, Term, Terms, Range, Match, MultiMatch, Nested, Knn, Boosting, GeoDistance
+from esorm.builder import (Bool, Term, Terms, Range, Match, MultiMatch, Nested, Knn, Boosting, GeoDistance,
+                           FunctionScore)
 
 
 class User(ESModel):
@@ -41,3 +42,6 @@ async def builder_errors() -> None:
     q.must.append('x')  # E: a string is not a query
     q.mustt.append(Term('a', 1))  # E: unknown clause list
     q.must = [Term('a', 1)]  # E: use Clauses([...])
+    q.must.append({'trem': {'a': 1}})  # E: typo in the query dict
+    Terms('tag', {'index': 'users'})  # E: id and path are missing from the terms lookup
+    FunctionScore(field_value_factor={'feild': 'likes'})  # E: typo in field_value_factor

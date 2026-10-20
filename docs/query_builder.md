@@ -24,6 +24,7 @@ anything, there is no `await` in it: it only builds the query.
     - [Common parameters](#builder-common-parameters)
 - [Custom query clauses](#custom-query-clauses)
 - [Type checking](#builder-type-checking)
+    - [PyCharm](#builder-pycharm)
 - [Tips and pitfalls](#builder-tips-and-pitfalls)
 
 <a id="why-a-query-builder"></a>
@@ -495,7 +496,8 @@ put it into a query dict, to log it, or to give it to the ES client directly (`e
 Things worth knowing:
 
 - **Query dicts can be clauses**: wherever a clause is expected, a query dict is accepted too, it is put into the
-  result as it is. So existing query dicts can be reused in the builder:
+  result as it is (in PyCharm wrap dict literals into `Raw()`, see [PyCharm](#builder-pycharm)). So existing query
+  dicts can be reused in the builder:
 
   ```python
   from esorm.query import ESQuery
@@ -1123,6 +1125,46 @@ Notes:
 - To replace a clause list use `q.must = Clauses([...])` (or `clear()` and `extend()`), not a plain list: mypy can't
   handle `+=` on a property whose setter accepts other types than its getter returns, so the setters accept only
   `Clauses` objects.
+- To add a query dict literal to a clause list use `append()`: type checkers check the dict there, but not after `+=`.
+
+<a id="builder-pycharm"></a>
+### PyCharm
+
+The builder works with PyCharm's type checker too (tested with PyCharm 2026.2), but PyCharm has a limitation: it
+doesn't check a dict literal against a parameter whose type is a union of a `TypedDict` and something else, and it
+reports even the correct dicts there. So:
+
+- **Query dict literals in the parameters of builder queries** (e.g. `Bool(filter=[Term(...), {...}])` or
+  `Nested('comments', {...})`) are reported. Wrap them into `Raw()`, whose parameter is a plain `ESQuery`, or store
+  them in an annotated variable (`active: ESQuery = {...}`). Both are checked:
+
+  ```python
+  from esorm.query import ESQuery
+  from esorm.builder import Bool, Term, Raw
+
+  country_hu: ESQuery = {'term': {'country': 'HU'}}
+  q = Bool(filter=[Term('active', True), Raw({'exists': {'field': 'email'}}), country_hu])
+  ```
+
+  ```json
+  {
+    "bool": {
+      "filter": [
+        {"term": {"active": true}},
+        {"exists": {"field": "email"}},
+        {"term": {"country": "HU"}}
+      ]
+    }
+  }
+  ```
+
+- `append()`, `Clause.set()`, `Terms` (with a list or a terms lookup) and the search methods of the models have
+  separate overloads for query dicts, so dict literals are checked there.
+- The optional dict parameters of `FunctionScore` (`functions`, `field_value_factor`, `random_score`,
+  `script_score`) are typed as `TypedDict`s with a `None` default, so PyCharm checks their dict literals. Leave them
+  out instead of passing `None` explicitly.
+- Not checked by PyCharm: the dict form of geo points (`{'lat': .., 'lon': ..}`, it is a union with lists and
+  strings), and the type of the assigned value of a clause list (`q.must = ...`). Pyright and mypy check both.
 
 <a id="builder-tips-and-pitfalls"></a>
 ## Tips and pitfalls
@@ -1155,5 +1197,7 @@ Notes:
   but type checkers don't know the type of the dict literal there.
 - **Don't write an operator expression alone in a `with` block**, use `q.must += a | b`, see
   [operators](#combining-queries-with-operators).
+- **In PyCharm wrap query dict literals into `Raw()`** in the parameters of builder queries, see
+  [PyCharm](#builder-pycharm).
 - **An empty `Bool()` matches all documents**, which is usually what an empty search form should do. If it shouldn't,
   check the clauses before searching (e.g. `if not q.must and not q.filter: return []`).
