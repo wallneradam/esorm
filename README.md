@@ -44,12 +44,19 @@ ESORM is an ElasticSearch Object Relational Mapper or Object Document Mapper (OD
     - [Bulk operations](#bulk-operations)
     - [Search](#search)
         - [General search](#general-search)
+        - [Query builder](#query-builder-intro)
         - [Search with field value terms (dictionary search)](#search-with-field-value-terms-dictionary-search)
         - [Count](#count)
         - [Vector Search](#vector-search)
     - [Aggregations](#aggregations)
     - [Pagination and sorting](#pagination-and-sorting)
     - [Iterating through all results (scan)](#iterating-through-all-results)
+- [🏗 Query builder](docs/query_builder.md#query-builder)
+    - [Two ways to build a query: parameters and `with` blocks](docs/query_builder.md#two-ways-to-build-a-query)
+    - [How `with` blocks work](docs/query_builder.md#how-with-blocks-work)
+    - [Combining queries with operators](docs/query_builder.md#combining-queries-with-operators)
+    - [Building queries dynamically](docs/query_builder.md#building-queries-dynamically)
+    - [Query clauses](docs/query_builder.md#query-clauses)
 - [🔬 Advanced usage](docs/advanced.md#advanced-usage)
     - [Optimistic concurrency control](docs/advanced.md#optimistic-concurrency-control)
     - [Lazy properties](docs/advanced.md#lazy-properties)
@@ -984,6 +991,45 @@ async def search_one_user():
 Queries are type checked, because they are annotated as `TypedDict`s. You can use IDE autocompletion and type checking.
 If you store a query in a variable, annotate it with `ESQuery`, see [Type checking](#type-checking).
 
+<a id="query-builder-intro"></a>
+#### Query builder
+
+Instead of nested dicts, queries can be built from classes too. The query builder produces exactly the same query
+dict, so the two can be mixed. Compound queries can be built with parameters, or with `with` blocks: the query
+clauses created inside a block are added to it:
+
+```python
+from esorm.builder import Bool, Match, Range, Term, Exists
+
+with Bool() as q:
+    Match('name', 'John')  # directly in the Bool block: must
+    with q.filter:
+        Range('age', gte=18)
+        Term('active', True)
+    with q.must_not:
+        Exists('deleted_at')
+
+# The same with parameters:
+# q = Bool(must=[Match('name', 'John')], filter=[Range('age', gte=18), Term('active', True)],
+#          must_not=[Exists('deleted_at')])
+```
+
+`q.to_query()` returns the query dict, which can be given to `search()`, `count()` or any other method:
+`users = await User.search(q.to_query())`. The result:
+
+```json
+{
+  "bool": {
+    "must": [{"match": {"name": "John"}}],
+    "filter": [{"range": {"age": {"gte": 18}}}, {"term": {"active": true}}],
+    "must_not": [{"exists": {"field": "deleted_at"}}]
+  }
+}
+```
+
+Queries can be combined with operators too: `(Term('tag', 'a') | Term('tag', 'b')) & ~Exists('deleted_at')`.
+See the [Query builder](docs/query_builder.md#query-builder) chapter for all the details.
+
 <a id="search-with-field-value-terms-dictionary-search"></a>
 #### Search with field value terms (dictionary search)
 
@@ -1393,6 +1439,10 @@ Some notes:
   use `bool` to combine them.
 - Rarely used queries and aggregations (e.g. span queries, `intervals`, `scripted_metric`) accept any dict.
 - The query and aggregation types can be used in pydantic models too, e.g. in a FastAPI request body.
+
+The classes of the [query builder](docs/query_builder.md#query-builder) are ordinary classes with typed parameters,
+so they are checked by every type checker, without the limitations of the `TypedDict` literals, see
+[Type checking](docs/query_builder.md#builder-type-checking) of the query builder.
 
 ### PyCharm
 
