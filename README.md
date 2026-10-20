@@ -1301,6 +1301,9 @@ tests on multiple python interpreters in virtual environments. At the top of the
 which python interpreters you want to test. The ES and OpenSearch versions are specified in
 `tests/docker-compose.yml` file.
 
+The development dependencies are in the `dev` dependency group of `pyproject.toml`, you can install them with
+`uv sync` or `pip install -e . --group dev` (pip 25.1+).
+
 If you already have a virtual environment, simply use `pytest` to run the tests. Docker is needed, the tests
 start the ES and OpenSearch containers automatically. By default all versions are tested, you can limit them with
 the `ESORM_TEST_SERVICES` environment variable, e.g. `ESORM_TEST_SERVICES=es9x,os3x pytest`

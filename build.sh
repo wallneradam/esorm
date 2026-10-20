@@ -1,9 +1,9 @@
 #!/bin/sh
 
-rm dist/*.tar.gz
+rm -f dist/*
 
 # Build the project
-python setup.py sdist
+python -m build
 if [ $? -ne 0 ]; then
     echo "Build failed!" >&2
     exit 1

@@ -1,3 +1,99 @@
 [build-system]
-requires = ["setuptools>=61.0"]
+requires = ["setuptools>=77.0"]
 build-backend = "setuptools.build_meta"
+
+[project]
+name = "pyesorm"
+version = "0.8.0"
+description = "Python ElasticSearch and OpenSearch ORM based on Pydantic"
+readme = "README.md"
+authors = [{ name = "Adam Wallner", email = "adam.wallner@gmail.com" }]
+license = "MPL-2.0"
+license-files = ["LICENSE"]
+keywords = ["ElasticSearch", "OpenSearch", "ORM", "Pydantic"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Operating System :: OS Independent",
+    "Intended Audience :: Developers",
+    "Topic :: Database",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Typing :: Typed",
+]
+requires-python = ">=3.10"
+dependencies = [
+    "typing-extensions>=4.8.0",
+    "elasticsearch>=9.0.0,<10.0.0",
+    "aiohttp>=3.0.0,<4.0.0",
+    "pydantic>=2.1.0",
+]
+
+[project.optional-dependencies]
+opensearch = ["opensearch-py[async]>=2.4.0,<4.0.0"]
+
+[project.urls]
+Homepage = "https://github.com/wallneradam/esorm"
+"Bug Tracker" = "https://github.com/wallneradam/esorm/issues"
+Documentation = "https://esorm.readthedocs.io/en/latest/"
+"Source Code" = "https://github.com/wallneradam/esorm"
+Changelog = "https://esorm.readthedocs.io/en/latest/changelog.html"
+
+[dependency-groups]
+test = [
+    "fastapi",
+    "opensearch-py[async]>=2.4.0,<4.0.0",
+    "pytest>=9.0.3,<10.0.0",
+    "pytest-asyncio>=1.0.0,<2.0.0",
+    "pytest-spec",
+    "pytest-timeout",
+]
+docs = [
+    "sphinx",
+    "sphinx-rtd-theme==1.3.0",
+    "sphinx-rtd-dark-mode==1.3.0",
+    "sphinx-autodoc-typehints",
+    "myst-parser",  # Markdown support
+]
+dev = [
+    { include-group = "test" },
+    { include-group = "docs" },
+    # Distribution
+    "build",
+    "twine",
+]
+
+[tool.setuptools.packages.find]
+include = ["esorm*"]
+
+[tool.pytest.ini_options]
+filterwarnings = ["ignore::DeprecationWarning"]
+asyncio_mode = "auto"
+# Tests of a class share the ES connection, so they should run in the same event loop
+asyncio_default_fixture_loop_scope = "class"
+asyncio_default_test_loop_scope = "class"
+# log_cli = true
+log_cli_level = "INFO"
+log_cli_format = "%(asctime)s %(levelname)8s %(name)16s - %(message)s"
+log_cli_date_format = "%Y-%m-%d %H:%M:%S"
+addopts = "-rs --spec -x"
+
+[tool.pyright]
+include = ["esorm"]
+exclude = ["**/node_modules", "**/__pycache__"]
+typeCheckingMode = "basic"
+reportUnknownMemberType = "none"
+reportAssignmentType = "none"
+reportRedeclaration = "none"
+reportArgumentType = "none"
+reportIndexIssue = "none"
+reportGeneralTypeIssues = "none"
+reportOptionalMemberAccess = "none"
+reportCallIssue = "none"
+reportAttributeAccessIssue = "none"
+reportReturnType = "none"
+reportOptionalOperand = "none"
+reportOperatorIssue = "none"

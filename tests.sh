@@ -33,7 +33,8 @@ for PYTHON in $PYTHONS; do
 
     echo " - Installing dependencies..."
     ${PYTHON} -m ensurepip --upgrade >/dev/null 2>&1  # This works in python3.12
-    pip install -e ".[dev]" >/dev/null
+    pip install --upgrade pip >/dev/null 2>&1  # Dependency groups need pip >= 25.1
+    pip install -e . --group test >/dev/null
     if [ $? -ne 0 ]; then
         echo "Failed to install dependencies in $PYTHON!"
         exit 4

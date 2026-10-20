@@ -9,7 +9,7 @@
 import os
 import sys
 
-from configparser import ConfigParser
+import tomllib
 
 sys.path.insert(0, os.path.abspath('..'))
 sys.path.insert(0, os.path.abspath('.'))
@@ -22,15 +22,15 @@ project = 'ESORM - ElasticSearch ORM'
 copyright = '2023, Adam Wallner'
 author = 'Adam Wallner'
 
-# Get version from setup.cfg
-config = ConfigParser()
-config.read('../setup.cfg')
+# Get version from pyproject.toml
+with open(os.path.join(os.path.dirname(__file__), '..', 'pyproject.toml'), 'rb') as f:
+    pyproject = tomllib.load(f)
 
 # Generate changelog
 changelog = generate_changelog('wallneradam/esorm')
 
-version = config['metadata']['version']
-release = config['metadata']['version']
+version = pyproject['project']['version']
+release = pyproject['project']['version']
 
 extensions = [
     'sphinx.ext.autodoc',
