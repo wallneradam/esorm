@@ -1,13 +1,321 @@
 """
 ElasticSearch aggregation type definitions for ESORM
+
+Every aggregation has the same type: :class:`ESAgg`, and the aggregations of a request (and the sub-aggregations)
+are a dict of them: :class:`ESAggs`::
+
+    from esorm.aggs import ESAggs
+
+    aggs_def: ESAggs = {
+        'countries': {
+            'terms': {'field': 'country'},
+            'aggs': {'avg_age': {'avg': {'field': 'age'}}},
+        }
+    }
+    aggs = await User.aggregate(aggs_def)
+    for bucket in aggs['countries']['buckets']:
+        print(bucket['key'], bucket['doc_count'], bucket['avg_age']['value'])
 """
-from typing import TypedDict, Dict, List, Union
-from typing_extensions import TypeAlias
+from typing import Dict, List, Union, Any, Literal, Mapping, Optional, Sequence, overload
+from typing_extensions import TypeAlias, TypedDict, Required
+
+from datetime import date
+
+from .query import ESQuery, ESScript, ESValue, ESGeoPoint
+
+#
+# Value types
+#
+# NOTE: builtin names which are also aggregation keys (e.g. min, max, sum, range, filter) must not be used in the
+# TypedDict classes, because inside the class body they mean the key, not the builtin.
+#
+
+_Boolean: TypeAlias = bool
+_Float: TypeAlias = float
+_Number: TypeAlias = Union[int, float]
+_SortOrder: TypeAlias = Literal['asc', 'desc']
+_BucketOrder: TypeAlias = Union[Mapping[str, _SortOrder], Sequence[Mapping[str, _SortOrder]]]
+_GapPolicy: TypeAlias = Literal['skip', 'insert_zeros', 'keep_values']
+_Missing: TypeAlias = Union[str, int, float, bool, date]
+_Any: TypeAlias = Mapping[str, Any]
 
 
 #
-# Queries
+# Metric aggregations
 #
+
+class ESAggFieldParams(TypedDict, total=False):
+    """
+    Represents the parameters of a simple metric aggregation (avg, sum, min, max) in Elasticsearch.
+    """
+    field: str
+    """ The field to aggregate on. """
+    script: ESScript
+    """ Script to compute the values """
+    missing: _Missing
+    """ Value to use for documents missing the aggregation field. """
+    format: str
+    """ Format of the value_as_string in the response """
+
+
+class ESAggCardinalityParams(TypedDict, total=False):
+    """
+    Represents the parameters for a cardinality aggregation in Elasticsearch.
+    """
+    field: str
+    """ The field to aggregate on. """
+    precision_threshold: int
+    """ Precision threshold for the cardinality calculation (default: 3000). """
+    missing: _Missing
+    """ Value to use for documents missing the aggregation field. """
+    script: ESScript
+    """ Script to compute the values """
+
+
+class ESAggStatsParams(TypedDict, total=False):
+    """
+    Represents the parameters for a stats aggregation in Elasticsearch.
+    """
+    field: str
+    """ The field to aggregate on. """
+    missing: _Missing
+    """ Value to use for documents missing the aggregation field. """
+    script: ESScript
+    """ Script to compute the values """
+    format: str
+    """ Format of the string values in the response """
+
+
+class ESAggExtendedStatsParams(TypedDict, total=False):
+    """
+    Represents the parameters for an extended stats aggregation in Elasticsearch.
+    """
+    field: str
+    """ The field to aggregate on. """
+    sigma: _Float
+    """ Number of standard deviations for bounds (default: 2.0). """
+    missing: _Missing
+    """ Value to use for documents missing the aggregation field. """
+    script: ESScript
+    """ Script to compute the values """
+    format: str
+    """ Format of the string values in the response """
+
+
+class ESAggValueCountParams(TypedDict, total=False):
+    """
+    Represents the parameters for a value count aggregation in Elasticsearch.
+    """
+    field: str
+    """ The field to count values for. """
+    script: ESScript
+    """ Script to compute the values """
+
+
+class ESAggPercentilesParams(TypedDict, total=False):
+    """
+    Represents the parameters for a percentiles aggregation in Elasticsearch.
+    """
+    field: str
+    """ The field to aggregate on. """
+    percents: Sequence[float]
+    """ Array of percentiles to compute (e.g., [25, 50, 75, 95, 99]). """
+    keyed: _Boolean
+    """ Whether to return percentiles as a hash instead of an array. """
+    tdigest: Mapping[str, Union[int, float, str]]
+    """ T-Digest algorithm configuration. """
+    hdr: Mapping[str, int]
+    """ HDR histogram configuration. """
+    missing: _Missing
+    """ Value to use for documents missing the aggregation field. """
+    script: ESScript
+    """ Script to compute the values """
+    format: str
+    """ Format of the string values in the response """
+
+
+class ESAggPercentileRanksParams(TypedDict, total=False):
+    """
+    Represents the parameters for a percentile ranks aggregation in Elasticsearch.
+    """
+    field: str
+    """ The field to aggregate on. """
+    values: Required[Sequence[float]]
+    """ Values to compute the percentile ranks of """
+    keyed: _Boolean
+    """ Whether to return the ranks as a hash instead of an array. """
+    tdigest: Mapping[str, Union[int, float, str]]
+    """ T-Digest algorithm configuration. """
+    hdr: Mapping[str, int]
+    """ HDR histogram configuration. """
+    missing: _Missing
+    """ Value to use for documents missing the aggregation field. """
+    script: ESScript
+    """ Script to compute the values """
+    format: str
+    """ Format of the string values in the response """
+
+
+class ESAggMedianAbsoluteDeviationParams(TypedDict, total=False):
+    """
+    Represents the parameters for a median absolute deviation aggregation in Elasticsearch.
+    """
+    field: str
+    """ The field to aggregate on. """
+    compression: _Float
+    """ Accuracy - memory usage trade-off """
+    missing: _Missing
+    """ Value to use for documents missing the aggregation field. """
+    script: ESScript
+    """ Script to compute the values """
+    format: str
+    """ Format of the value_as_string in the response """
+
+
+class ESAggWeightedAvgValue(TypedDict, total=False):
+    """
+    Value or weight source of a weighted avg aggregation
+    """
+    field: str
+    """ The field to aggregate on. """
+    script: ESScript
+    """ Script to compute the values """
+    missing: _Number
+    """ Value to use for documents missing the field. """
+
+
+class ESAggWeightedAvgParams(TypedDict, total=False):
+    """
+    Represents the parameters for a weighted avg aggregation in Elasticsearch.
+    """
+    value: Required[ESAggWeightedAvgValue]
+    """ The source of the values """
+    weight: Required[ESAggWeightedAvgValue]
+    """ The source of the weights """
+    format: str
+    """ Format of the value_as_string in the response """
+
+
+_ESAggTopHitsParamsKeywords = TypedDict('_ESAggTopHitsParamsKeywords', {
+    'from': int,
+}, total=False)
+
+
+class ESAggTopHitsParams(_ESAggTopHitsParamsKeywords, total=False):
+    """
+    Represents the parameters for a top hits aggregation in Elasticsearch.
+    """
+    size: int
+    """ The number of hits to return per bucket """
+    sort: Union[str, Sequence[Union[str, Mapping[str, Any]]], Mapping[str, Any]]
+    """ The sort of the hits """
+    _source: Union[_Boolean, str, Sequence[str], Mapping[str, Any]]
+    """ Fields of the source to return """
+    highlight: Mapping[str, Any]
+    """ Highlight definition """
+    explain: _Boolean
+    """ Return the score explanation """
+    script_fields: Mapping[str, Any]
+    """ Script fields """
+    docvalue_fields: Sequence[Union[str, Mapping[str, Any]]]
+    """ Doc value fields """
+    stored_fields: Union[str, Sequence[str]]
+    """ Stored fields """
+    version: _Boolean
+    """ Return the version of the hits """
+    seq_no_primary_term: _Boolean
+    """ Return the sequence number and primary term of the hits """
+    track_scores: _Boolean
+    """ Compute scores even if sorted by fields """
+
+
+class ESAggTopMetricsParams(TypedDict, total=False):
+    """
+    Represents the parameters for a top metrics aggregation in Elasticsearch.
+    """
+    metrics: Required[Union[Mapping[str, str], Sequence[Mapping[str, str]]]]
+    """ The fields to return (e.g. ``{'field': 'price'}``) """
+    sort: Required[Union[str, Mapping[str, Any], Sequence[Union[str, Mapping[str, Any]]]]]
+    """ The sort to select the top documents """
+    size: int
+    """ The number of top documents """
+
+
+class ESAggStringStatsParams(TypedDict, total=False):
+    """
+    Represents the parameters for a string stats aggregation in Elasticsearch.
+    """
+    field: str
+    """ The field to aggregate on. """
+    show_distribution: _Boolean
+    """ Return the probability distribution of the characters """
+    missing: str
+    """ Value to use for documents missing the aggregation field. """
+    script: ESScript
+    """ Script to compute the values """
+
+
+class ESAggBoxplotParams(TypedDict, total=False):
+    """
+    Represents the parameters for a boxplot aggregation in Elasticsearch.
+    """
+    field: str
+    """ The field to aggregate on. """
+    compression: _Float
+    """ Accuracy - memory usage trade-off """
+    missing: _Missing
+    """ Value to use for documents missing the aggregation field. """
+    script: ESScript
+    """ Script to compute the values """
+
+
+class ESAggRateParams(TypedDict, total=False):
+    """
+    Represents the parameters for a rate aggregation in Elasticsearch.
+    """
+    field: str
+    """ The field to aggregate on, if not set, the number of documents is used """
+    unit: Literal['second', 'minute', 'hour', 'day', 'week', 'month', 'quarter', 'year']
+    """ The unit of the rate """
+    mode: Literal['sum', 'value_count']
+    """ How the values are calculated """
+    script: ESScript
+    """ Script to compute the values """
+    format: str
+    """ Format of the value_as_string in the response """
+
+
+class ESAggGeoBoundsParams(TypedDict, total=False):
+    """
+    Represents the parameters for a geo bounds aggregation in Elasticsearch.
+    """
+    field: Required[str]
+    """ The geo_point or geo_shape field """
+    wrap_longitude: _Boolean
+    """ Allow the bounding box to overlap the international date line """
+
+
+class ESAggGeoCentroidParams(TypedDict):
+    """
+    Represents the parameters for a geo centroid aggregation in Elasticsearch.
+    """
+    field: str
+    """ The geo_point or geo_shape field """
+
+
+#
+# Bucket aggregations
+#
+
+class ESAggTermsPartition(TypedDict):
+    """
+    Partition of the terms
+    """
+    partition: int
+    """ The partition to return """
+    num_partitions: int
+    """ The number of partitions """
+
 
 class ESAggTermParams(TypedDict, total=False):
     """
@@ -17,26 +325,128 @@ class ESAggTermParams(TypedDict, total=False):
     """ The field to aggregate on. """
     size: int
     """ The number of buckets to return. """
-    order: Dict[str, str]
-    """ The order of the buckets. """
+    shard_size: int
+    """ The number of buckets to return from each shard """
+    min_doc_count: int
+    """ The minimum number of documents in a bucket. """
+    shard_min_doc_count: int
+    """ The minimum number of documents in a bucket on a shard """
+    order: _BucketOrder
+    """ The order of the buckets (e.g. ``{'_count': 'desc'}``, ``{'_key': 'asc'}``) """
+    include: Union[str, Sequence[ESValue], ESAggTermsPartition]
+    """ Terms to include: regular expression, list of values or partition """
+    exclude: Union[str, Sequence[ESValue]]
+    """ Terms to exclude: regular expression or list of values """
+    missing: _Missing
+    """ Value to use for documents missing the aggregation field. """
+    script: ESScript
+    """ Script to compute the terms """
+    execution_hint: Literal['map', 'global_ordinals']
+    """ Execution mode of the aggregation """
+    collect_mode: Literal['depth_first', 'breadth_first']
+    """ Collect mode of the sub-aggregations """
+    show_term_doc_count_error: _Boolean
+    """ Return the doc count error of the terms """
+    value_type: str
+    """ Value type of unmapped fields """
+    format: str
+    """ Format of the key_as_string in the response """
 
 
-class ESAggFieldParams(TypedDict):
+class ESAggMultiTermsSource(TypedDict, total=False):
     """
-    Represents field parameter in Elasticsearch.
+    A source of a multi terms aggregation
+    """
+    field: Required[str]
+    """ The field """
+    missing: _Missing
+    """ Value to use for documents missing the field. """
+
+
+class ESAggMultiTermsParams(TypedDict, total=False):
+    """
+    Represents the parameters for a multi terms aggregation in Elasticsearch.
+    """
+    terms: Required[Sequence[ESAggMultiTermsSource]]
+    """ The fields to aggregate on """
+    size: int
+    """ The number of buckets to return. """
+    shard_size: int
+    """ The number of buckets to return from each shard """
+    min_doc_count: int
+    """ The minimum number of documents in a bucket. """
+    shard_min_doc_count: int
+    """ The minimum number of documents in a bucket on a shard """
+    order: _BucketOrder
+    """ The order of the buckets """
+    collect_mode: Literal['depth_first', 'breadth_first']
+    """ Collect mode of the sub-aggregations """
+    show_term_doc_count_error: _Boolean
+    """ Return the doc count error of the terms """
+
+
+class ESAggSignificantTermsParams(TypedDict, total=False):
+    """
+    Represents the parameters for a significant terms aggregation in Elasticsearch.
     """
     field: str
     """ The field to aggregate on. """
+    size: int
+    """ The number of buckets to return. """
+    shard_size: int
+    """ The number of buckets to return from each shard """
+    min_doc_count: int
+    """ The minimum number of documents in a bucket. """
+    shard_min_doc_count: int
+    """ The minimum number of documents in a bucket on a shard """
+    background_filter: ESQuery
+    """ The background set of documents """
+    include: Union[str, Sequence[ESValue], ESAggTermsPartition]
+    """ Terms to include """
+    exclude: Union[str, Sequence[ESValue]]
+    """ Terms to exclude """
+    execution_hint: Literal['map', 'global_ordinals']
+    """ Execution mode of the aggregation """
+    jlh: Mapping[str, Any]
+    """ JLH score heuristic """
+    mutual_information: Mapping[str, Any]
+    """ Mutual information heuristic """
+    chi_square: Mapping[str, Any]
+    """ Chi square heuristic """
+    gnd: Mapping[str, Any]
+    """ Google normalized distance heuristic """
+    percentage: Mapping[str, Any]
+    """ Percentage heuristic """
+    script_heuristic: Mapping[str, Any]
+    """ Script heuristic """
 
 
-class ESAggExtendedBounds(TypedDict):
+class ESAggRareTermsParams(TypedDict, total=False):
+    """
+    Represents the parameters for a rare terms aggregation in Elasticsearch.
+    """
+    field: Required[str]
+    """ The field to aggregate on. """
+    max_doc_count: int
+    """ The maximum number of documents of a rare term """
+    precision: _Float
+    """ Precision of the internal cuckoo filters """
+    include: Union[str, Sequence[ESValue]]
+    """ Terms to include """
+    exclude: Union[str, Sequence[ESValue]]
+    """ Terms to exclude """
+    missing: _Missing
+    """ Value to use for documents missing the aggregation field. """
+
+
+class ESAggExtendedBounds(TypedDict, total=False):
     """
     Represents the parameters for extended bounds in Elasticsearch.
     """
-    min: int
-    """ The minimum value. """
-    max: int
-    """ The maximum value. """
+    min: Union[int, float, str]
+    """ The minimum value (date histograms accept dates too). """
+    max: Union[int, float, str]
+    """ The maximum value (date histograms accept dates too). """
 
 
 class ESAggHistogramParams(TypedDict, total=False):
@@ -45,12 +455,26 @@ class ESAggHistogramParams(TypedDict, total=False):
     """
     field: str
     """ The field to aggregate on. """
-    interval: int
+    interval: _Number
     """ The interval of the histogram. """
     min_doc_count: int
     """ The minimum number of documents in a bucket. """
     extended_bounds: ESAggExtendedBounds
     """ The extended bounds of the histogram. """
+    hard_bounds: ESAggExtendedBounds
+    """ Limits the range of the buckets """
+    offset: _Number
+    """ Offset to shift bucket boundaries """
+    order: _BucketOrder
+    """ The order of the buckets """
+    keyed: _Boolean
+    """ Whether to return buckets as a hash instead of an array. """
+    missing: _Number
+    """ Value to use for documents missing the aggregation field. """
+    script: ESScript
+    """ Script to compute the values """
+    format: str
+    """ Format of the key_as_string in the response """
 
 
 class ESDateHistogramParams(TypedDict, total=False):
@@ -71,74 +495,61 @@ class ESDateHistogramParams(TypedDict, total=False):
     """ The minimum number of documents in a bucket. """
     extended_bounds: ESAggExtendedBounds
     """ The extended bounds of the histogram. """
+    hard_bounds: ESAggExtendedBounds
+    """ Limits the range of the buckets """
     offset: str
     """ Offset to shift bucket boundaries (e.g., "+6h", "-1d"). """
-    keyed: bool
+    keyed: _Boolean
     """ Whether to return buckets as a hash instead of an array. """
     missing: str
     """ Value to use for documents missing the aggregation field. """
-    order: Dict[str, str]
+    order: _BucketOrder
     """ Order of the buckets (e.g., {"_key": "asc"}). """
+    script: ESScript
+    """ Script to compute the values """
 
 
-class ESAggPercentilesParams(TypedDict, total=False):
+class ESAggAutoDateHistogramParams(TypedDict, total=False):
     """
-    Represents the parameters for a percentiles aggregation in Elasticsearch.
-    """
-    field: str
-    """ The field to aggregate on. """
-    percents: List[float]
-    """ Array of percentiles to compute (e.g., [25, 50, 75, 95, 99]). """
-    keyed: bool
-    """ Whether to return percentiles as a hash instead of an array. """
-    tdigest: Dict[str, Union[int, float]]
-    """ T-Digest algorithm configuration. """
-    hdr: Dict[str, int]
-    """ HDR histogram configuration. """
-    missing: float
-    """ Value to use for documents missing the aggregation field. """
-
-
-class ESAggCardinalityParams(TypedDict, total=False):
-    """
-    Represents the parameters for a cardinality aggregation in Elasticsearch.
+    Represents the parameters for an auto date histogram aggregation in Elasticsearch.
     """
     field: str
     """ The field to aggregate on. """
-    precision_threshold: int
-    """ Precision threshold for the cardinality calculation (default: 3000). """
-    missing: Union[str, int, float]
+    buckets: int
+    """ The target number of buckets """
+    format: str
+    """ Date format for bucket keys """
+    minimum_interval: Literal['year', 'month', 'day', 'hour', 'minute', 'second']
+    """ The minimum rounding interval """
+    time_zone: str
+    """ Time zone for bucketing """
+    missing: str
     """ Value to use for documents missing the aggregation field. """
+    script: ESScript
+    """ Script to compute the values """
 
 
-class ESAggStatsParams(TypedDict, total=False):
-    """
-    Represents the parameters for a stats aggregation in Elasticsearch.
-    """
-    field: str
-    """ The field to aggregate on. """
-    missing: float
-    """ Value to use for documents missing the aggregation field. """
+ESAggRange = TypedDict('ESAggRange', {
+    'from': _Number,
+    'to': _Number,
+    'key': str,
+}, total=False)
+""" A range of a range aggregation """
 
+ESAggDateRange = TypedDict('ESAggDateRange', {
+    'from': Union[str, int, float, date],
+    'to': Union[str, int, float, date],
+    'key': str,
+}, total=False)
+""" A range of a date range aggregation, dates can be date math expressions (e.g. "now-10d/d") """
 
-class ESAggExtendedStatsParams(TypedDict, total=False):
-    """
-    Represents the parameters for an extended stats aggregation in Elasticsearch.
-    """
-    field: str
-    """ The field to aggregate on. """
-    sigma: float
-    """ Number of standard deviations for bounds (default: 2.0). """
-    missing: float
-    """ Value to use for documents missing the aggregation field. """
-
-
-class ESAggValueCountParams(TypedDict, total=False):
-    """
-    Represents the parameters for a value count aggregation in Elasticsearch.
-    """
-    field: str
-    """ The field to count values for. """
+ESAggIpRange = TypedDict('ESAggIpRange', {
+    'from': str,
+    'to': str,
+    'mask': str,
+    'key': str,
+}, total=False)
+""" A range of an IP range aggregation """
 
 
 class ESAggRangeParams(TypedDict, total=False):
@@ -147,10 +558,16 @@ class ESAggRangeParams(TypedDict, total=False):
     """
     field: str
     """ The field to aggregate on. """
-    ranges: List[Dict[str, float]]
+    ranges: Required[Sequence[ESAggRange]]
     """ Array of range buckets (e.g., [{"to": 50}, {"from": 50, "to": 100}, {"from": 100}]). """
-    keyed: bool
+    keyed: _Boolean
     """ Whether to return buckets as a hash instead of an array. """
+    missing: _Number
+    """ Value to use for documents missing the aggregation field. """
+    script: ESScript
+    """ Script to compute the values """
+    format: str
+    """ Format of the string values in the response """
 
 
 class ESAggDateRangeParams(TypedDict, total=False):
@@ -159,22 +576,268 @@ class ESAggDateRangeParams(TypedDict, total=False):
     """
     field: str
     """ The field to aggregate on. """
-    ranges: List[Dict[str, str]]
+    ranges: Required[Sequence[ESAggDateRange]]
     """ Array of date range buckets (e.g., [{"to": "2020-01-01"}, {"from": "2020-01-01"}]). """
     format: str
     """ Date format for parsing range values. """
     time_zone: str
     """ Time zone for date calculations. """
-    keyed: bool
+    keyed: _Boolean
+    """ Whether to return buckets as a hash instead of an array. """
+    missing: str
+    """ Value to use for documents missing the aggregation field. """
+
+
+class ESAggIpRangeParams(TypedDict, total=False):
+    """
+    Represents the parameters for an IP range aggregation in Elasticsearch.
+    """
+    field: Required[str]
+    """ The field to aggregate on. """
+    ranges: Required[Sequence[ESAggIpRange]]
+    """ Array of IP ranges or masks """
+    keyed: _Boolean
     """ Whether to return buckets as a hash instead of an array. """
 
 
-class ESAgg(TypedDict, total=False):
+class ESAggGeoDistanceParams(TypedDict, total=False):
+    """
+    Represents the parameters for a geo distance aggregation in Elasticsearch.
+    """
+    field: Required[str]
+    """ The geo_point field """
+    origin: Required[ESGeoPoint]
+    """ The origin point """
+    ranges: Required[Sequence[ESAggRange]]
+    """ Distance ranges """
+    unit: str
+    """ Distance unit (e.g. "km") """
+    distance_type: Literal['arc', 'plane']
+    """ Distance calculation method """
+    keyed: _Boolean
+    """ Whether to return buckets as a hash instead of an array. """
+
+
+class ESAggGeoGridParams(TypedDict, total=False):
+    """
+    Represents the parameters for a geohash / geotile / geohex grid aggregation in Elasticsearch.
+    """
+    field: Required[str]
+    """ The geo_point or geo_shape field """
+    precision: Union[int, str]
+    """ Precision of the cells """
+    size: int
+    """ Maximum number of buckets to return """
+    shard_size: int
+    """ The number of buckets to return from each shard """
+    bounds: Union[ESGeoPoint, Mapping[str, Any]]
+    """ Bounding box to filter the points """
+
+
+class ESAggFiltersParams(TypedDict, total=False):
+    """
+    Represents the parameters for a filters aggregation in Elasticsearch.
+    """
+    filters: Required[Union[Mapping[str, ESQuery], Sequence[ESQuery]]]
+    """ Named (dict) or anonymous (list) filters, every filter is a bucket """
+    other_bucket: _Boolean
+    """ Add a bucket for documents not matching any filter """
+    other_bucket_key: str
+    """ Key of the other bucket """
+    keyed: _Boolean
+    """ Whether to return buckets as a hash instead of an array. """
+
+
+class ESAggAdjacencyMatrixParams(TypedDict, total=False):
+    """
+    Represents the parameters for an adjacency matrix aggregation in Elasticsearch.
+    """
+    filters: Required[Mapping[str, ESQuery]]
+    """ Named filters """
+    separator: str
+    """ Separator of the filter names in the keys of intersections """
+
+
+class ESAggMissingParams(TypedDict):
+    """
+    Represents the parameters for a missing aggregation in Elasticsearch.
+    """
+    field: str
+    """ The field """
+
+
+class ESAggNestedParams(TypedDict):
+    """
+    Represents the parameters for a nested aggregation in Elasticsearch.
+    """
+    path: str
+    """ Path of the nested field """
+
+
+class ESAggReverseNestedParams(TypedDict, total=False):
+    """
+    Represents the parameters for a reverse nested aggregation in Elasticsearch.
+    """
+    path: str
+    """ Path of the nested field to join back, if not set, it joins back to the root document """
+
+
+class ESAggJoinParams(TypedDict):
+    """
+    Represents the parameters for a children or parent aggregation in Elasticsearch.
+    """
+    type: str
+    """ Name of the child relationship """
+
+
+class ESAggSamplerParams(TypedDict, total=False):
+    """
+    Represents the parameters for a sampler aggregation in Elasticsearch.
+    """
+    shard_size: int
+    """ The number of top scoring documents per shard """
+
+
+class ESAggDiversifiedSamplerParams(TypedDict, total=False):
+    """
+    Represents the parameters for a diversified sampler aggregation in Elasticsearch.
+    """
+    field: str
+    """ The field to diversify on """
+    shard_size: int
+    """ The number of top scoring documents per shard """
+    max_docs_per_value: int
+    """ Maximum number of documents per value """
+    execution_hint: Literal['map', 'global_ordinals', 'bytes_hash']
+    """ Execution mode """
+    script: ESScript
+    """ Script to compute the value to diversify on """
+
+
+class ESAggRandomSamplerParams(TypedDict, total=False):
+    """
+    Represents the parameters for a random sampler aggregation in Elasticsearch.
+    """
+    probability: Required[_Float]
+    """ The probability that a document is included """
+    seed: int
+    """ The seed of the random sampling """
+
+
+class ESAggCompositeParams(TypedDict, total=False):
+    """
+    Represents the parameters for a composite aggregation in Elasticsearch.
+    """
+    sources: Required[Sequence[Mapping[str, Mapping[str, Mapping[str, Any]]]]]
+    """ Value sources, e.g. ``[{'country': {'terms': {'field': 'country'}}}]`` """
+    size: int
+    """ The number of buckets to return """
+    after: Mapping[str, Any]
+    """ Paginate: the after_key of the previous response """
+
+
+#
+# Pipeline aggregations
+#
+
+class ESAggBucketsPathParams(TypedDict, total=False):
+    """
+    Represents the parameters of a pipeline aggregation using one buckets path (e.g. avg_bucket, max_bucket,
+    cumulative_sum, derivative) in Elasticsearch.
+    """
+    buckets_path: Required[str]
+    """ Path to the metric (e.g. "sales_per_month>sales") """
+    gap_policy: _GapPolicy
+    """ Policy of the gaps in the data """
+    format: str
+    """ Format of the value_as_string in the response """
+    sigma: _Float
+    """ Number of standard deviations (extended_stats_bucket) """
+    percents: Sequence[float]
+    """ Percentiles to compute (percentiles_bucket) """
+    keyed: _Boolean
+    """ Return the percentiles as a hash (percentiles_bucket) """
+    unit: str
+    """ The unit of the derivative (derivative) """
+    lag: int
+    """ The lag (serial_diff) """
+
+
+class ESAggMovingFnParams(TypedDict, total=False):
+    """
+    Represents the parameters for a moving function aggregation in Elasticsearch.
+    """
+    buckets_path: Required[str]
+    """ Path to the metric """
+    window: Required[int]
+    """ The size of the window """
+    script: Required[str]
+    """ The script executed on each window """
+    shift: int
+    """ Shift of the window """
+    gap_policy: _GapPolicy
+    """ Policy of the gaps in the data """
+
+
+class ESAggNormalizeParams(TypedDict, total=False):
+    """
+    Represents the parameters for a normalize aggregation in Elasticsearch.
+    """
+    buckets_path: Required[str]
+    """ Path to the metric """
+    method: Required[Literal['rescale_0_1', 'rescale_0_100', 'percent_of_sum', 'mean', 'z-score', 'softmax']]
+    """ The normalization method """
+    format: str
+    """ Format of the value_as_string in the response """
+
+
+class ESAggBucketScriptParams(TypedDict, total=False):
+    """
+    Represents the parameters for a bucket script or bucket selector aggregation in Elasticsearch.
+    """
+    buckets_path: Required[Mapping[str, str]]
+    """ Script variable names and paths to the metrics """
+    script: Required[ESScript]
+    """ The script """
+    gap_policy: _GapPolicy
+    """ Policy of the gaps in the data """
+    format: str
+    """ Format of the value_as_string in the response """
+
+
+_ESAggBucketSortParamsKeywords = TypedDict('_ESAggBucketSortParamsKeywords', {
+    'from': int,
+}, total=False)
+
+
+class ESAggBucketSortParams(_ESAggBucketSortParamsKeywords, total=False):
+    """
+    Represents the parameters for a bucket sort aggregation in Elasticsearch.
+    """
+    sort: Sequence[Union[str, Mapping[str, Any]]]
+    """ The sort of the buckets """
+    size: int
+    """ The number of buckets to return """
+    gap_policy: _GapPolicy
+    """ Policy of the gaps in the data """
+
+
+#
+# The aggregation
+#
+
+_ESAggKeywords = TypedDict('_ESAggKeywords', {
+    'global': Mapping[str, Any],
+}, total=False)
+
+
+class ESAgg(_ESAggKeywords, total=False):
     """
     Holds all types of aggregations supported
+
+    One aggregation type should be used in one aggregation, sub-aggregations can be added with ``aggs``.
     """
-    terms: ESAggTermParams
-    """ Terms aggregation """
+    # Metric aggregations
     avg: ESAggFieldParams
     """ Average aggregation """
     sum: ESAggFieldParams
@@ -183,24 +846,156 @@ class ESAgg(TypedDict, total=False):
     """ Minimum aggregation """
     max: ESAggFieldParams
     """ Maximum aggregation """
-    histogram: ESAggHistogramParams
-    """ Histogram aggregation """
-    date_histogram: ESDateHistogramParams
-    """ Date histogram aggregation """
     cardinality: ESAggCardinalityParams
     """ Cardinality aggregation (count distinct values) """
-    percentiles: ESAggPercentilesParams
-    """ Percentiles aggregation """
+    value_count: ESAggValueCountParams
+    """ Value count aggregation """
     stats: ESAggStatsParams
     """ Stats aggregation (count, min, max, avg, sum) """
     extended_stats: ESAggExtendedStatsParams
     """ Extended stats aggregation (includes variance, std deviation) """
-    value_count: ESAggValueCountParams
-    """ Value count aggregation """
+    percentiles: ESAggPercentilesParams
+    """ Percentiles aggregation """
+    percentile_ranks: ESAggPercentileRanksParams
+    """ Percentile ranks aggregation """
+    median_absolute_deviation: ESAggMedianAbsoluteDeviationParams
+    """ Median absolute deviation aggregation """
+    weighted_avg: ESAggWeightedAvgParams
+    """ Weighted average aggregation """
+    top_hits: ESAggTopHitsParams
+    """ Top hits aggregation """
+    top_metrics: ESAggTopMetricsParams
+    """ Top metrics aggregation """
+    string_stats: ESAggStringStatsParams
+    """ String stats aggregation """
+    boxplot: ESAggBoxplotParams
+    """ Boxplot aggregation """
+    rate: ESAggRateParams
+    """ Rate aggregation """
+    geo_bounds: ESAggGeoBoundsParams
+    """ Geo bounds aggregation """
+    geo_centroid: ESAggGeoCentroidParams
+    """ Geo centroid aggregation """
+    scripted_metric: Mapping[str, Any]
+    """ Scripted metric aggregation """
+    matrix_stats: Mapping[str, Any]
+    """ Matrix stats aggregation """
+    t_test: Mapping[str, Any]
+    """ T-test aggregation """
+
+    # Bucket aggregations
+    terms: ESAggTermParams
+    """ Terms aggregation """
+    multi_terms: ESAggMultiTermsParams
+    """ Multi terms aggregation """
+    significant_terms: ESAggSignificantTermsParams
+    """ Significant terms aggregation """
+    significant_text: Mapping[str, Any]
+    """ Significant text aggregation """
+    rare_terms: ESAggRareTermsParams
+    """ Rare terms aggregation """
+    histogram: ESAggHistogramParams
+    """ Histogram aggregation """
+    date_histogram: ESDateHistogramParams
+    """ Date histogram aggregation """
+    auto_date_histogram: ESAggAutoDateHistogramParams
+    """ Auto date histogram aggregation """
+    variable_width_histogram: Mapping[str, Any]
+    """ Variable width histogram aggregation """
     range: ESAggRangeParams
     """ Range aggregation """
     date_range: ESAggDateRangeParams
     """ Date range aggregation """
+    ip_range: ESAggIpRangeParams
+    """ IP range aggregation """
+    ip_prefix: Mapping[str, Any]
+    """ IP prefix aggregation """
+    geo_distance: ESAggGeoDistanceParams
+    """ Geo distance aggregation """
+    geohash_grid: ESAggGeoGridParams
+    """ Geohash grid aggregation """
+    geotile_grid: ESAggGeoGridParams
+    """ Geotile grid aggregation """
+    geohex_grid: ESAggGeoGridParams
+    """ Geohex grid aggregation """
+    filter: ESQuery
+    """ Filter aggregation: one bucket of the documents matching the query """
+    filters: ESAggFiltersParams
+    """ Filters aggregation: one bucket for each filter """
+    adjacency_matrix: ESAggAdjacencyMatrixParams
+    """ Adjacency matrix aggregation """
+    missing: ESAggMissingParams
+    """ Missing aggregation: one bucket of the documents without the field """
+    nested: ESAggNestedParams
+    """ Nested aggregation """
+    reverse_nested: ESAggReverseNestedParams
+    """ Reverse nested aggregation """
+    children: ESAggJoinParams
+    """ Children aggregation """
+    parent: ESAggJoinParams
+    """ Parent aggregation """
+    sampler: ESAggSamplerParams
+    """ Sampler aggregation """
+    diversified_sampler: ESAggDiversifiedSamplerParams
+    """ Diversified sampler aggregation """
+    random_sampler: ESAggRandomSamplerParams
+    """ Random sampler aggregation """
+    composite: ESAggCompositeParams
+    """ Composite aggregation (paginate all buckets) """
+    categorize_text: Mapping[str, Any]
+    """ Categorize text aggregation """
+    frequent_item_sets: Mapping[str, Any]
+    """ Frequent item sets aggregation """
+    time_series: Mapping[str, Any]
+    """ Time series aggregation """
+
+    # Pipeline aggregations
+    avg_bucket: ESAggBucketsPathParams
+    """ Average bucket aggregation """
+    sum_bucket: ESAggBucketsPathParams
+    """ Sum bucket aggregation """
+    min_bucket: ESAggBucketsPathParams
+    """ Minimum bucket aggregation """
+    max_bucket: ESAggBucketsPathParams
+    """ Maximum bucket aggregation """
+    stats_bucket: ESAggBucketsPathParams
+    """ Stats bucket aggregation """
+    extended_stats_bucket: ESAggBucketsPathParams
+    """ Extended stats bucket aggregation """
+    percentiles_bucket: ESAggBucketsPathParams
+    """ Percentiles bucket aggregation """
+    cumulative_sum: ESAggBucketsPathParams
+    """ Cumulative sum aggregation """
+    cumulative_cardinality: ESAggBucketsPathParams
+    """ Cumulative cardinality aggregation """
+    derivative: ESAggBucketsPathParams
+    """ Derivative aggregation """
+    serial_diff: ESAggBucketsPathParams
+    """ Serial differencing aggregation """
+    moving_fn: ESAggMovingFnParams
+    """ Moving function aggregation """
+    normalize: ESAggNormalizeParams
+    """ Normalize aggregation """
+    bucket_script: ESAggBucketScriptParams
+    """ Bucket script aggregation """
+    bucket_selector: ESAggBucketScriptParams
+    """ Bucket selector aggregation """
+    bucket_sort: ESAggBucketSortParams
+    """ Bucket sort aggregation """
+    bucket_count_ks_test: Mapping[str, Any]
+    """ Bucket count K-S test aggregation """
+    bucket_correlation: Mapping[str, Any]
+    """ Bucket correlation aggregation """
+    inference: Mapping[str, Any]
+    """ Inference bucket aggregation """
+
+    # Sub-aggregations and metadata
+    aggs: Mapping[str, 'ESAgg']
+    """ Sub-aggregations """
+    aggregations: Mapping[str, 'ESAgg']
+    """ Sub-aggregations (long name) """
+    meta: Mapping[str, Any]
+    """ Metadata, returned in the response """
 
 
 ESAggs: TypeAlias = Dict[str, ESAgg]
@@ -209,6 +1004,109 @@ ESAggs: TypeAlias = Dict[str, ESAgg]
 
 #
 # Responses
+#
+# The responses are plain dicts at runtime. The classes below only tell type checkers the types of the known keys,
+# while any other key is the result of a sub-aggregation, accessed by its name. It is needed, because the keys of the
+# response are the names of the aggregations, which are chosen by the user.
+#
+
+_BucketKey: TypeAlias = Literal['key']
+_BucketStrKey: TypeAlias = Literal['key_as_string', 'from_as_string', 'to_as_string']
+_BucketIntKey: TypeAlias = Literal['doc_count', 'bg_count', 'doc_count_error_upper_bound']
+_BucketFloatKey: TypeAlias = Literal['from', 'to', 'score']
+
+_ResultOptionalFloatKey: TypeAlias = Literal[
+    'value', 'min', 'max', 'avg', 'sum_of_squares',
+    'variance', 'variance_population', 'variance_sampling',
+    'std_deviation', 'std_deviation_population', 'std_deviation_sampling',
+]
+_ResultFloatKey: TypeAlias = Literal['sum']
+_ResultStrKey: TypeAlias = Literal['value_as_string', 'interval']
+_ResultIntKey: TypeAlias = Literal['count', 'doc_count', 'sum_other_doc_count', 'doc_count_error_upper_bound']
+_ResultBucketsKey: TypeAlias = Literal['buckets']
+_ResultValuesKey: TypeAlias = Literal['values', 'std_deviation_bounds']
+_ResultDictKey: TypeAlias = Literal['hits', 'after_key', 'bounds', 'location', 'meta']
+_ResultListKey: TypeAlias = Literal['top']
+
+
+# The literal keys overlap with `str`, it is intentional: the first matching overload is used, so the known keys
+# have their own types, and any other key is a sub-aggregation.
+
+class ESAggBucket(Dict[str, Any]):
+    """
+    A bucket of a bucket aggregation response
+
+    The key is a string, a number, or a dict (composite aggregation). The results of the sub-aggregations can be
+    accessed by their names: ``bucket['avg_age']['value']``.
+    """
+
+    @overload
+    def __getitem__(self, key: _BucketKey) -> Any: ...  # type: ignore[overload-overlap]
+
+    @overload
+    def __getitem__(self, key: _BucketStrKey) -> str: ...  # type: ignore[overload-overlap]
+
+    @overload
+    def __getitem__(self, key: _BucketIntKey) -> int: ...  # type: ignore[overload-overlap]
+
+    @overload
+    def __getitem__(self, key: _BucketFloatKey) -> float: ...  # type: ignore[overload-overlap]
+
+    @overload
+    def __getitem__(self, key: str) -> 'ESAggResult': ...
+
+    def __getitem__(self, key: str) -> Any:
+        return super().__getitem__(key)
+
+
+class ESAggResult(Dict[str, Any]):
+    """
+    The result of an aggregation
+
+    The keys depend on the type of the aggregation: e.g. ``value`` for avg, sum, min, max, cardinality,
+    ``buckets`` for terms, histogram, range, ``doc_count`` for filter, nested, missing. The results of the
+    sub-aggregations of single bucket aggregations (e.g. filter, nested) can be accessed by their names.
+
+    The ``value`` of avg, min, max is None if there are no documents.
+    """
+
+    @overload
+    def __getitem__(self, key: _ResultOptionalFloatKey) -> Optional[float]: ...  # type: ignore[overload-overlap]
+
+    @overload
+    def __getitem__(self, key: _ResultFloatKey) -> float: ...  # type: ignore[overload-overlap]
+
+    @overload
+    def __getitem__(self, key: _ResultStrKey) -> str: ...  # type: ignore[overload-overlap]
+
+    @overload
+    def __getitem__(self, key: _ResultIntKey) -> int: ...  # type: ignore[overload-overlap]
+
+    @overload
+    def __getitem__(self, key: _ResultBucketsKey) -> List[ESAggBucket]: ...  # type: ignore[overload-overlap]
+
+    @overload
+    def __getitem__(self, key: _ResultValuesKey) -> Dict[str, Optional[float]]: ...  # type: ignore[overload-overlap]
+
+    @overload
+    def __getitem__(self, key: _ResultDictKey) -> Dict[str, Any]: ...  # type: ignore[overload-overlap]
+
+    @overload
+    def __getitem__(self, key: _ResultListKey) -> List[Dict[str, Any]]: ...  # type: ignore[overload-overlap]
+
+    @overload
+    def __getitem__(self, key: str) -> 'ESAggResult': ...
+
+    def __getitem__(self, key: str) -> Any:
+        return super().__getitem__(key)
+
+
+ESAggsResponse: TypeAlias = Dict[str, ESAggResult]
+""" ElasticSearch aggregations response type definition: aggregation results by aggregation names """
+
+
+#
+# Response structures of the earlier versions, ESAggsResponse doesn't use them anymore
 #
 
 class ESAggBucketResponse(TypedDict):
@@ -365,17 +1263,3 @@ class ESAggDateRangeResponse(TypedDict):
     """
     buckets: List[ESAggDateRangeBucketResponse]
     """ A list of buckets in the date range aggregation. """
-
-
-ESAggsResponse: TypeAlias = Dict[str, Union[
-    ESAggValueResponse,
-    ESAggTermsResponse,
-    ESAggHistogramResponse,
-    ESAggCardinalityResponse,
-    ESAggPercentilesResponse,
-    ESAggStatsResponse,
-    ESAggExtendedStatsResponse,
-    ESAggRangeResponse,
-    ESAggDateRangeResponse
-]]
-""" ElasticSearch aggregations response type definition """

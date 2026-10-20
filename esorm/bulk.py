@@ -6,7 +6,7 @@ from typing import Union, Literal
 from .error import BulkError, BulkOperationError
 from .utils import utcnow
 
-from .model import TModel, ESModelTimestamp
+from .model import ESModel, ESModelTimestamp
 from .esorm import es
 
 
@@ -74,7 +74,7 @@ class ESBulk:
         return False
 
     # noinspection PyProtectedMember
-    async def save(self, model: TModel):
+    async def save(self, model: ESModel):
         """
         Add the model to the bulk for saving
 
@@ -119,7 +119,7 @@ class ESBulk:
         self._actions.append({'index': index})
         self._actions.append(document)
 
-    async def delete(self, model: TModel):
+    async def delete(self, model: ESModel):
         """
         Add the model to the bulk for deletion
 

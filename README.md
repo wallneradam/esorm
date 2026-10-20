@@ -60,7 +60,8 @@ ESORM is an ElasticSearch Object Relational Mapper or Object Document Mapper (OD
     - [FastAPI integration](docs/advanced.md#fastapi-integration)
         - [FastAPI pagination](docs/advanced.md#fastapi-pagination)
         - [FastAPI streaming export](docs/advanced.md#fastapi-streaming-export)
-- [🖥 IDE Support](#ide-support)
+- [🖥 IDE Support and type checking](#ide-support)
+    - [Type checking of queries and aggregations](#type-checking)
 - [🧪 Testing](#testing)
 - [🛡 License](#license)
 - [📃 Citation](#citation)
@@ -344,9 +345,9 @@ class Place(ESModel):
     location: geo_point
 
 
-def create_place():
-    place = Place(name='Budapest', location=geo_point(lat=47.4979, long=19.0402))
-    place.save()
+async def create_place():
+    place = Place(name='Budapest', location=geo_point(lat=47.4979, lon=19.0402))
+    await place.save()
 ```
 
 <a id="dense_vector"></a>
@@ -976,10 +977,12 @@ async def search_one_user():
             }
         }
     )
-    print(user.name)
+    if user is not None:  # It is None if no document matches
+        print(user.name)
 ```
 
 Queries are type checked, because they are annotated as `TypedDict`s. You can use IDE autocompletion and type checking.
+If you store a query in a variable, annotate it with `ESQuery`, see [Type checking](#type-checking).
 
 <a id="search-with-field-value-terms-dictionary-search"></a>
 #### Search with field value terms (dictionary search)
@@ -1024,7 +1027,7 @@ async def count_users():
 
 
 async def count_users_by_age():
-    count = await User.count(query={'age': 18})
+    count = await User.count(query={'term': {'age': 18}})
     print(count)
 ```
 
@@ -1102,10 +1105,14 @@ You can use `aggregate` method to get aggregations.
 You can specify an ES aggregation query as a dictionary. It also accepts normal ES queries,
 to be able to fiter which documents you want to aggregate.
 Both the aggs parameter and the query parameter are type checked, because they are annotated as `TypedDict`s.
-You can use IDE autocompletion and type checking.
+You can use IDE autocompletion and type checking. If you store them in variables, annotate them with `ESAggs` and
+`ESQuery` (see [Type checking](#type-checking)). Sub-aggregations can be added with the `aggs` key, their results
+are accessible by their names.
 
 ```python
 from esorm import ESModel
+from esorm.aggs import ESAggs
+from esorm.query import ESQuery
 
 # Here the model have automatically generated id
 class User(ESModel):
@@ -1115,7 +1122,7 @@ class User(ESModel):
 
 async def aggregate_avg():
     # Get average age of users
-    aggs_def = {
+    aggs_def: ESAggs = {
         'avg_age': {
             'avg': {
                 'field': 'age'
@@ -1127,14 +1134,14 @@ async def aggregate_avg():
 
 async def aggregate_avg_by_country(country = 'Hungary'):
     # Get average age of users by country
-    aggs_def = {
+    aggs_def: ESAggs = {
         'avg_age': {
             'avg': {
                 'field': 'age'
             }
         }
     }
-    query = {
+    query: ESQuery = {
         'bool': {
             'must': [{
                 'match': {
@@ -1145,13 +1152,13 @@ async def aggregate_avg_by_country(country = 'Hungary'):
             }]
         }
     }
-    aggs = await User.aggregate(aggs_def, query)
+    aggs = await User.aggregate(aggs_def, query=query)
     print(aggs['avg_age']['value'])
 
 
 async def aggregate_terms():
     # Get number of users by country
-    aggs_def = {
+    aggs_def: ESAggs = {
         'countries': {
             'terms': {
                 'field': 'country'
@@ -1161,6 +1168,20 @@ async def aggregate_terms():
     aggs = await User.aggregate(aggs_def)
     for bucket in aggs['countries']['buckets']:
         print(bucket['key'], bucket['doc_count'])
+
+
+async def aggregate_avg_age_by_country():
+    # Get the average age of users by country, using a sub-aggregation
+    aggs = await User.aggregate({
+        'countries': {
+            'terms': {'field': 'country'},
+            'aggs': {
+                'avg_age': {'avg': {'field': 'age'}}
+            }
+        }
+    })
+    for bucket in aggs['countries']['buckets']:
+        print(bucket['key'], bucket['avg_age']['value'])
 ```
 
 <a id="pagination-and-sorting"></a>
@@ -1184,17 +1205,17 @@ class User(ESModel):
     age: int
 
 
-def get_users(page = 1, page_size = 10):
+async def get_users(page = 1, page_size = 10):
 
-    def pagination_callback(total: int):
+    async def pagination_callback(total: int):
         # You may set a header value or something else here
         print(f'Total users: {total}')
 
     # 1st create the decorator itself
-    pagination = Pagination(page=page, page_size=page_size)
+    pagination = Pagination(page=page, page_size=page_size, callback=pagination_callback)
 
     # Then decorate your model
-    res = pagination(User).search_by_fields(age=18)
+    res = await pagination(User).search_by_fields({'age': 18})
 
     # Here the result has maximum 10 items
     return res
@@ -1214,7 +1235,7 @@ class User(ESModel):
     age: int
 
 
-def get_users():
+async def get_users():
     # 1st create the decorator itself
     sort = Sort(sort=[
         {'age': {'order': 'desc'}},
@@ -1222,19 +1243,19 @@ def get_users():
     ])
 
     # Then decorate your model
-    res = sort(User).search_by_fields(age=18)
+    res = await sort(User).search_by_fields({'age': 18})
 
-    # Here the result is sorted by age ascending
+    # Here the result is sorted by age descending, then by name ascending
     return res
 
-def get_user_sorted_by_name():
+async def get_user_sorted_by_name():
     # You can also use this simplified syntax
     sort = Sort(sort='name')
 
     # Then decorate your model
-    res = sort(User).all()
+    res = await sort(User).all()
 
-    # Here the result is sorted by age descending
+    # Here the result is sorted by name ascending
     return res
 ```
 
@@ -1277,18 +1298,111 @@ the point in time immediately. More details in
 [Iterating through large result sets](docs/advanced.md#iterating-through-large-result-sets).
 
 <a id="ide-support"></a>
-## 🖥 IDE Support
+## 🖥 IDE Support and type checking
+
+ESORM has type hints everywhere (it is a [PEP 561](https://peps.python.org/pep-0561/) typed package), so IDEs can
+autocomplete and check the models, the queries, the aggregations and the results. The type hints are tested with
+[pyright](https://github.com/microsoft/pyright) (used by Pylance in VS Code / Cursor) and
+[mypy](https://mypy-lang.org/) in the CI (`tests/typecheck`): correct code must not have any warnings, and typical
+mistakes must be reported.
+
+<a id="type-checking"></a>
+### Type checking of queries and aggregations
+
+Queries and aggregations are `TypedDict`s, so the keys are autocompleted, and typos, wrong value types and
+missing required keys are reported:
+
+```python
+from esorm import ESModel
+
+
+class User(ESModel):
+    name: str
+    age: int
+    country: str
+
+
+async def search():
+    # Error: "rnage" is an undefined item in "ESQuery"
+    await User.search({'bool': {'filter': [{'rnage': {'age': {'gte': 18}}}]}})
+    # Error: "lesser" is an undefined item in "ESRange"
+    await User.search({'range': {'age': {'gte': 18, 'lesser': 65}}})
+    # Error: "query" is required in "ESNested"
+    await User.search({'nested': {'path': 'tags'}})
+    # Error: "adn" is not assignable to the operator literals
+    await User.search({'match': {'name': {'query': 'John Doe', 'operator': 'adn'}}})
+```
+
+Every query clause has the same type: `ESQuery`. It is used for the whole query, and also for the clauses of
+compound queries (`bool`, `nested`, `function_score`, ...). An aggregation is an `ESAgg`, the aggregations
+(and the sub-aggregations) are `ESAggs`.
+
+If you pass a query directly to a method, it is checked automatically. If you store it in a variable,
+annotate the variable, because type checkers infer an unannotated dict literal as a plain `dict`, and report that
+it is not an `ESQuery`:
+
+```python
+from typing import List
+from esorm.query import ESQuery
+from esorm.aggs import ESAggs
+
+
+async def search_users(name: str, min_age: int):
+    must: List[ESQuery] = []
+    if name:
+        must.append({'match': {'name': name}})
+    if min_age:
+        must.append({'range': {'age': {'gte': min_age}}})
+    query: ESQuery = {'bool': {'must': must}}
+    # Or create it with the TypedDict class: query = ESQuery(bool={'must': must})
+    return await User.search(query)
+
+
+async def avg_age():
+    aggs_def: ESAggs = {'avg_age': {'avg': {'field': 'age'}}}
+    aggs = await User.aggregate(aggs_def)
+    return aggs['avg_age']['value']
+```
+
+The results are typed too: `search()` returns a list of models (a dict of id - model pairs with `res_dict=True`),
+`search_one()` returns a model or `None`, and in the result of `aggregate()` the known keys (`value`, `buckets`,
+`key`, `doc_count`, ...) have their types, while any other key is the result of a sub-aggregation:
+
+```python
+async def avg_age_by_country():
+    aggs = await User.aggregate({
+        'countries': {
+            'terms': {'field': 'country'},
+            'aggs': {'avg_age': {'avg': {'field': 'age'}}}
+        }
+    })
+    for bucket in aggs['countries']['buckets']:
+        print(bucket['key'], bucket['doc_count'], bucket['avg_age']['value'])
+```
+
+Some notes:
+
+- The `value` of the `avg`, `min` and `max` aggregations is `None` if there are no documents, so it is
+  `Optional[float]`.
+- Buckets are typed as a list. With `keyed: True` (or with named filters in a `filters` aggregation) ES returns them
+  as a dict, use `typing.cast()` there.
+- ES allows only one query type in a query clause (`{'match': ..., 'term': ...}` is invalid), this is not checked,
+  use `bool` to combine them.
+- Rarely used queries and aggregations (e.g. span queries, `intervals`, `scripted_metric`) accept any dict.
+- The query and aggregation types can be used in pydantic models too, e.g. in a FastAPI request body.
 
 ### PyCharm
-This project is developed and tested with [PyCharm](https://www.jetbrains.com/pycharm/) IDE. It has full support for type hints and
-annotations. You can use the IDE autocompletion and type checking features.
+
+This project is developed with [PyCharm](https://www.jetbrains.com/pycharm/) IDE. You can use the IDE
+autocompletion and type checking features.
 Recommended Jetbrains Plugins:
 - [Pydantic](https://plugins.jetbrains.com/plugin/12861-pydantic): This plugin provides support for Pydantic models and type hints, helps a lot with autocompletion and type checking.
 
-### VScode / Cursor
+### VS Code / Cursor
 
-In VSCode you can use PyLance. Unfortunately Pylance use static type checking, unlike PyCharm's heuristic type checker,
-which is not too good with ESORM's Union types.
+In VS Code and Cursor you can use Pylance (or the pyright extension). Set the type checking mode to at least
+`basic` (`"python.analysis.typeCheckingMode": "standard"` is recommended), otherwise Pylance doesn't report type
+errors.
 
 <a id="testing"></a>
 ## 🧪 Testing

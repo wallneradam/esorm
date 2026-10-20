@@ -58,8 +58,13 @@ docs = [
     "sphinx-autodoc-typehints",
     "myst-parser",  # Markdown support
 ]
+typecheck = [
+    "pyright>=1.1.400",
+    "mypy>=1.15",
+]
 dev = [
     { include-group = "test" },
+    { include-group = "typecheck" },
     { include-group = "docs" },
     # Distribution
     "build",
@@ -68,6 +73,10 @@ dev = [
 
 [tool.setuptools.packages.find]
 include = ["esorm*"]
+
+[tool.setuptools.package-data]
+# PEP 561: the package has inline type hints
+esorm = ["py.typed"]
 
 [tool.pytest.ini_options]
 filterwarnings = ["ignore::DeprecationWarning"]

@@ -43,3 +43,22 @@ jobs:
       - name: Clean up containers
         if: always()
         run: docker compose -f tests/docker-compose.yml down -v
+
+  typecheck:
+    name: Type checking
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Install Python and dependencies
+        run: |
+          uv venv --python 3.13 .venv
+          uv pip install --python .venv -e . --group typecheck
+
+      - name: Run type checking tests (pyright, mypy)
+        run: .venv/bin/python tests/typecheck/check.py

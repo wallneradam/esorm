@@ -106,9 +106,9 @@ async def test_retry_on_conflict(user: User):
     
     # This won't raise a ConflictError   
     await asyncio.gather(
-        login(user._id),
-        login(user._id),
-        login(user._id),
+        login(user.__id__),
+        login(user.__id__),
+        login(user.__id__),
     )
 ```
 
@@ -131,9 +131,9 @@ class User(ESModel):
         await self.save()
         
 async def test_retry_on_conflict(user: User):
-    user_1 = await User.get(user._id)
-    user_2 = await User.get(user._id)
-    user_3 = await User.get(user._id)
+    user_1 = await User.get(user.__id__)
+    user_2 = await User.get(user.__id__)
+    user_3 = await User.get(user.__id__)
     # This won't raise a ConflictError, becaue the model reloads and retries the method on conflict   
     await asyncio.gather(
         user_1.login(),
@@ -168,7 +168,7 @@ class User(ESModel):
     # This is lazy property, which can be async
     @lazy_property
     async def same_first_name(self) -> List["User"]:
-        return await self.search_by_fields(first_name=self.first_name)
+        return await User.search_by_fields({'first_name': self.first_name})
 ```
 
 Lazy properties in the background work like the following: 
@@ -233,7 +233,7 @@ class User(ESModel):
         
 async def get_user_by_region(region: str = 'europe') -> List[User]:
     """ Search for users by region using shard routing """
-    return await User.search_by_fields(region=region, routing=f"{region}_routing")  
+    return await User.search_by_fields({'region': region}, routing=f"{region}_routing")
 ```
 
 <a id="retreive-selected-fields-only"></a>
@@ -539,7 +539,8 @@ async def create_user(first_name: str, last_name: str) -> User:
 @app.get("/users")
 async def users(first_name: Optional[str] = None, last_name: Optional[str] = None) -> List[User]:
     """ Search users """
-    return await User.search_by_fields(first_name=first_name, last_name=last_name)
+    fields = {'first_name': first_name, 'last_name': last_name}
+    return await User.search_by_fields({k: v for k, v in fields.items() if v is not None})
 ```
 
 <a id="fastapi-pagination"></a>
