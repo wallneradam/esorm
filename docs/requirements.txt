@@ -2,6 +2,7 @@
 typing-extensions>=4.8.0
 
 elasticsearch>=9.0.0, <10.0.0
+opensearch-py[async]>=2.4.0, <4.0.0
 
 pydantic>=2.1.0
 # For development

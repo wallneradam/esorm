@@ -2,7 +2,6 @@ from typing import List, Optional
 
 import sys
 import os
-import asyncio
 import subprocess
 import importlib
 
@@ -10,7 +9,7 @@ import pytest
 import logging
 
 logger = logging.getLogger(__name__)
-disable_loggers = ['elastic_transport.node_pool', 'elastic_transport.transport']
+disable_loggers = ['elastic_transport.node_pool', 'elastic_transport.transport', 'opensearch']
 
 
 #
@@ -22,26 +21,17 @@ def pytest_configure():
         logging.getLogger(logger_name).disabled = True
 
 
-@pytest.fixture(scope="class")
-def event_loop():
-    """
-    Use asyncio event loop in class scope
-    """
-    loop = asyncio.new_event_loop()
-    yield loop
-    loop.close()
-
-
 #
 # Fixtures
 #
 
 # noinspection PyProtectedMember
 @pytest.fixture(scope="class")
-async def esorm():
+async def esorm(service):
     """
     Simply import esorm module
     This way it can be removed too
+    It depends on the service, so it is imported again for every service
     """
     esorm = importlib.import_module('esorm')
     # It should be empty for every class
@@ -68,18 +58,17 @@ async def docker_es(service):
 @pytest.fixture(scope="class")
 async def es(docker_es, esorm, service):
     """
-    ElasticSearch fixture for the specified version
+    ElasticSearch (or OpenSearch) fixture for the specified version
     """
     es = await esorm.connect(hosts=["http://127.0.0.1:9200"], wait=True)
 
+    # The backend should be detected automatically
+    assert esorm.is_opensearch() == service.startswith('os')
+
     es_version = await esorm.get_es_version()
     major, _, _ = map(int, es_version.split('.'))
-    if service == 'es8x':
-        assert major == 8
-    elif service == 'es9x':
-        assert major == 9
+    assert major == int(service[2:-1])
 
-    major, minor, _ = map(int, es_version.split('.'))
     assert es is not None
     yield es
     await es.close()

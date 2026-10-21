@@ -34,7 +34,7 @@ from .utils import snake_case, utcnow
 from .aggs import ESAggs, ESAggsResponse
 
 from .error import InvalidResponseError, NotFoundError, ConflictError as ESORMConflictError
-from .esorm import es, get_es_version
+from .esorm import es, get_es_version, is_opensearch
 from .query import ESQuery, ESMust
 from .response import ESResponse, Hit
 
@@ -1368,14 +1368,29 @@ async def setup_mappings(*_, debug=False):
                    for v in properties.values())
 
     # noinspection PyShadowingNames
+    def flat_setting_keys(settings: dict, prefix: str = ''):
+        """ Get the keys of the settings in flat ('a.b.c') form """
+        for k, v in settings.items():
+            if isinstance(v, dict):
+                yield from flat_setting_keys(v, f'{prefix}{k}.')
+            else:
+                yield prefix + k
+
+    # noinspection PyShadowingNames
     def has_setting(settings: dict, key: str) -> bool:
         """ Check if a setting is specified either in flat ('a.b.c') or in nested form """
-        return any(k == key or k.endswith('.' + key) or (isinstance(v, dict) and has_setting(v, key))
-                   for k, v in settings.items())
+        key = key.removeprefix('index.')
+        return any(k == key or k.endswith('.' + key) for k in flat_setting_keys(settings))
 
-    # ES 9.2+ excludes vectors from _source by default, which would break loading models with vectors
+    # ES 9.2+ excludes vectors from _source by default and OpenSearch 3.x+ derives vectors in _source from the index
+    # (normalized for cosine similarity), both would break loading models with vectors
     es_major, es_minor = map(int, (await get_es_version()).split('.')[:2])
-    exclude_source_vectors_supported = (es_major, es_minor) >= (9, 2)
+    source_vectors_setting: Optional[str] = None
+    if is_opensearch():
+        if es_major >= 3:
+            source_vectors_setting = 'index.knn.derived_source.enabled'
+    elif (es_major, es_minor) >= (9, 2):
+        source_vectors_setting = 'index.mapping.exclude_source_vectors'
 
     # Process all models and create mappings
     for index, model in _ESModelMeta.__models__.items():
@@ -1402,9 +1417,9 @@ async def setup_mappings(*_, debug=False):
         try:
             if not index_exists:
                 settings = model.ESConfig.settings
-                if (exclude_source_vectors_supported and has_dense_vector(properties)
-                        and not has_setting(settings or {}, 'exclude_source_vectors')):
-                    settings = {**(settings or {}), 'index.mapping.exclude_source_vectors': False}
+                if (source_vectors_setting and has_dense_vector(properties)
+                        and not has_setting(settings or {}, source_vectors_setting)):
+                    settings = {**(settings or {}), source_vectors_setting: False}
                 await es.indices.create(index=index,
                                         mappings={'properties': properties},
                                         settings=settings,

@@ -1,13 +1,14 @@
 """
 ElasticSearch ORM main module
 """
-from typing import Optional, cast, Union, List, Mapping, Type
+from typing import Optional, cast, Union, List, Mapping, Type, Literal, Dict, Any
 
 import asyncio
+import importlib.util
 import re
 
-from elasticsearch import AsyncElasticsearch
-from elastic_transport import NodeConfig, AsyncTransport, HttpHeaders, TransportApiResponse
+from elasticsearch import AsyncElasticsearch, ApiError, UnsupportedProductError
+from elastic_transport import NodeConfig, AsyncTransport, HttpHeaders, TransportApiResponse, TransportError
 
 from .logger import logger
 
@@ -97,31 +98,109 @@ def _compat_transport_class(transport_class: Type[AsyncTransport]) -> Type[Async
 # Global client proxy
 es = cast(AsyncElasticsearch, _ESProxy())
 
-__all__ = ['es', 'connect', 'get_es_version']
+Backend = Literal['elasticsearch', 'opensearch']
+""" Type of the server ESORM is connected to """
+
+# The backend of the current connection
+_backend: Backend = 'elasticsearch'
+
+# ElasticSearch client keyword arguments which have a different name in the opensearch-py client
+_OPENSEARCH_KWARGS = {
+    'basic_auth': 'http_auth',
+    'request_timeout': 'timeout',
+}
+
+__all__ = ['es', 'connect', 'get_es_version', 'is_opensearch', 'Backend']
+
+
+async def _detect_backend(client: AsyncElasticsearch, wait: bool) -> Backend:
+    """
+    Detect if the server is ElasticSearch or OpenSearch
+
+    :param client: The ElasticSearch client
+    :param wait: Wait for the server to be ready
+    :return: The detected backend, if it could not be detected, `elasticsearch`
+    """
+    while True:
+        try:
+            await client.perform_request('GET', '/', headers={'accept': 'application/json'})
+            return 'elasticsearch'
+        except UnsupportedProductError as e:
+            # The client refuses every server other than ElasticSearch, but the response is in the exception
+            if isinstance(e.body, Mapping) and e.body.get('version', {}).get('distribution') == 'opensearch':
+                return 'opensearch'
+            return 'elasticsearch'
+        except (ApiError, TransportError):
+            if not wait:
+                logger.warning("Could not detect the server type, assuming ElasticSearch.")
+                return 'elasticsearch'
+            logger.info("Waiting for the server to be ready…")
+            await asyncio.sleep(2.0)
+
+
+def _opensearch_kwargs(kwargs: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Convert AsyncElasticsearch keyword arguments to AsyncOpenSearch ones
+
+    :param kwargs: AsyncElasticsearch keyword arguments
+    :return: AsyncOpenSearch keyword arguments
+    """
+    kwargs = {_OPENSEARCH_KWARGS.get(k, k): v for k, v in kwargs.items()}
+    # It is an elastic_transport class, which is not compatible with opensearch-py
+    kwargs.pop('transport_class', None)
+    return kwargs
 
 
 async def connect(hosts: Union[str, Union[List[Union[str, Mapping[str, Union[str, int]], NodeConfig]], None]],
-                  *args, wait=False, **kwargs) -> Optional[AsyncElasticsearch]:
+                  *args, wait=False, backend: Optional[Backend] = None, **kwargs) -> Optional[AsyncElasticsearch]:
     """
-    Connect to ElasticSearch
+    Connect to ElasticSearch or OpenSearch
+
+    If the backend is not specified and the `opensearch-py` package is installed, the type of the server is
+    detected automatically. In this case the keyword arguments of AsyncElasticsearch should be used, the most
+    common ones (`basic_auth`, `request_timeout`) are converted for OpenSearch. If you need OpenSearch specific
+    arguments (e.g. AWS authentication), specify `backend='opensearch'` and use the arguments of AsyncOpenSearch.
 
     :param hosts: ElasticSearch hosts to connect, either a list a mapping, or a single string
-    :param args: Other AsyncElasticsearch arguments
+    :param args: Other AsyncElasticsearch (or AsyncOpenSearch) arguments
     :param wait: Wait for AsyncElasticsearch to be ready
-    :param kwargs: Other AsyncElasticsearch keyword arguments
-    :return: AsyncElasticsearch client instance
+    :param backend: The type of the server (`elasticsearch` or `opensearch`), if not set, it is detected
+                    automatically when the `opensearch-py` package is installed, otherwise `elasticsearch`
+    :param kwargs: Other AsyncElasticsearch (or AsyncOpenSearch) keyword arguments
+    :return: AsyncElasticsearch client instance (or the compatible AsyncOpenSearch client instance)
     """
-    kwargs['transport_class'] = _compat_transport_class(kwargs.get('transport_class', AsyncTransport))
-    cast(_ESProxy, es).set_client(AsyncElasticsearch(hosts=hosts, *args, **kwargs))
+    global _backend
 
     try:
-        logger.info(f"Connecting to ElasticSearch ({hosts})…")
+        client = None
+        if backend != 'opensearch':
+            es_kwargs = dict(kwargs)
+            es_kwargs['transport_class'] = _compat_transport_class(kwargs.get('transport_class', AsyncTransport))
+            client = AsyncElasticsearch(hosts=hosts, *args, **es_kwargs)
+            if backend is None:
+                backend = 'elasticsearch'
+                if importlib.util.find_spec('opensearchpy') is not None:
+                    logger.info(f"Detecting server type ({hosts})…")
+                    backend = await _detect_backend(client, wait)
+                    if backend == 'opensearch':
+                        await client.close()
+                        client = None
+                        kwargs = _opensearch_kwargs(kwargs)
+
+        if client is None:
+            from .opensearch import AsyncOpenSearchCompat
+            client = AsyncOpenSearchCompat(hosts, *args, **kwargs)
+
+        _backend = backend
+        cast(_ESProxy, es).set_client(client)
+
+        logger.info(f"Connecting to {'OpenSearch' if backend == 'opensearch' else 'ElasticSearch'} ({hosts})…")
         if wait:
             # Wait for ES to start, this will block until ES is ready to prevent routers start early
             while True:
                 status = await es.ping()
                 if not status:
-                    logger.info("Waiting for ElasticSearch to be ready…")
+                    logger.info("Waiting for the server to be ready…")
                     await asyncio.sleep(2.0)
                 else:
                     break
@@ -134,9 +213,18 @@ async def connect(hosts: Union[str, Union[List[Union[str, Mapping[str, Union[str
 
 async def get_es_version() -> str:
     """
-    Get ElasticSearch version
+    Get ElasticSearch (or OpenSearch) version
 
-    :return: ElasticSearch version
+    :return: ElasticSearch (or OpenSearch) version
     """
     info = await es.info()
     return info['version']['number']
+
+
+def is_opensearch() -> bool:
+    """
+    Check if ESORM is connected to OpenSearch
+
+    :return: True if the server is OpenSearch
+    """
+    return _backend == 'opensearch'
