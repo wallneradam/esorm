@@ -276,6 +276,174 @@ async def test_source():
     assert doc.f_int == 1
 ```
 
+<a id="iterating-through-large-result-sets"></a>
+## Iterating through large result sets
+
+`search()` with pagination is made for showing results to users: it returns a page of results, and
+it can't go deeper than 10,000 results by default (`index.max_result_window`), because the deeper the
+page, the more documents every shard needs to sort and return. When you need to process *all* results
+of a query, e.g. to export, migrate or reindex data, or to run batch jobs, use `scan()` or
+`scan_batches()`. They can iterate through any number of documents (even millions) efficiently.
+
+| | `search()` + `Pagination` | `scan()` / `scan_batches()` |
+|---|---|---|
+| Use case | Pages for users (UI, API) | Processing all results (export, batch jobs) |
+| Number of results | Max. 10,000 by default | Unlimited |
+| Jump to any page | Yes | No, forward only |
+| Consistent results | No, changes between pages are visible | Yes, a snapshot of the index |
+| Returns | A list of models | An async iterator of models (or lists of models) |
+
+### Basic usage
+
+`scan()` returns an async iterator, which yields the models one by one, while in the background it
+fetches them in batches:
+
+```python
+from esorm import ESModel
+
+
+class User(ESModel):
+    name: str
+    age: int
+    country: str
+
+
+async def export_adults():
+    async for user in User.scan({'range': {'age': {'gte': 18}}}):
+        print(user.name)
+```
+
+Without query, all documents are returned:
+
+```python
+async def count_by_country():
+    counts = {}
+    async for user in User.scan():
+        counts[user.country] = counts.get(user.country, 0) + 1
+    return counts
+```
+
+`scan_batches()` takes the same arguments, but it yields lists of models (one list per request).
+It is useful if you want to process the documents in groups, e.g. with bulk operations:
+
+```python
+from esorm import ESBulk
+
+
+async def anonymize_users():
+    async for users in User.scan_batches(batch_size=500):
+        # Here `users` is a list of maximum 500 models
+        async with ESBulk() as bulk:
+            for user in users:
+                user.name = 'anonymous'
+                await bulk.save(user)
+```
+
+Modifying the documents during the iteration is safe: the iteration doesn't see the changes, so every
+document is processed exactly once. Optimistic concurrency control works as usual, so if a document is
+modified by someone else after it was fetched, saving it raises a conflict error.
+
+### Parameters
+
+The parameters are similar to the ones of `search()`:
+
+| Parameter | Default | Description |
+|---|---|---|
+| `query` | `None` | ElasticSearch query dict, if not set, all documents are returned |
+| `batch_size` | `1000` | The number of documents fetched in one request |
+| `sort` | `None` | Field name or sort term list like in `search()`, if not set, `ESConfig.default_sort` is used, or the index order |
+| `keep_alive` | `'1m'` | How long the point in time is kept alive between two requests |
+| `routing` | `None` | Shard routing value |
+| `index` | `None` | Index name (or pattern), if not set, the index of the model is used |
+| `_source` | `None` | Fields to return, see [Retreive Selected Fields Only](#retreive-selected-fields-only) |
+| `**kwargs` | | Other search API parameters (e.g. `request_timeout`) |
+
+### How it works
+
+`scan()` uses a [point in time](https://www.elastic.co/docs/api/doc/elasticsearch/operation/operation-open-point-in-time)
+(PIT) with [`search_after`](https://www.elastic.co/docs/reference/elasticsearch/rest-apis/paginate-search-results#search-after),
+which is the recommended way of deep pagination since ElasticSearch 7.10:
+
+1. It opens a point in time on the index. It is a lightweight snapshot of the index, so all the following
+   requests see the same data, regardless of changes made in the meantime.
+2. It fetches the results in batches. Instead of a page number, every request continues after the sort
+   values of the last document of the previous batch (`search_after`), so every shard only needs to return
+   `batch_size` documents, no matter how deep the iteration is.
+3. When there are no more results, or the iteration is stopped, it closes the point in time.
+
+Lazy properties are computed for every batch, like for the results of `search()`.
+
+### Sorting
+
+Without `sort` (and `ESConfig.default_sort`), the results come in index order, which is the most efficient.
+If the order matters, set it like in `search()`. The `Sort` decorator works with `scan()` too
+(`Pagination` is ignored, because there are no pages):
+
+```python
+from esorm import Sort
+
+
+async def users_by_age():
+    async for user in User.scan(sort=[{'age': {'order': 'desc'}}]):
+        ...
+
+    sort = Sort(sort='name')
+    async for user in sort(User).scan():
+        ...
+```
+
+`search_after` needs a unique sort order, otherwise documents with the same sort values at the border of
+two batches would be lost. ESORM adds a unique tiebreaker to the sort automatically (`_shard_doc`, or `_id`
+on OpenSearch 2.x, which doesn't support `_shard_doc`), so it is safe to sort by any field, e.g. by `age`,
+which is the same for many users.
+
+### Stopping early
+
+The point in time is closed automatically when the iteration ends. But if you stop the iteration early
+(by `break`, `return` or an exception), Python closes the async iterator only when it is garbage
+collected, so the point in time would remain open until then (or until `keep_alive` expires). To close it
+immediately, use `contextlib.aclosing()`:
+
+```python
+from contextlib import aclosing
+
+
+async def find_first_admin():
+    async with aclosing(User.scan()) as users:
+        async for user in users:
+            if user.name == 'admin':
+                return user  # The point in time is closed here
+```
+
+### Keep alive and resources
+
+`keep_alive` is not the time limit of the whole iteration: it is how long the point in time is kept alive
+*between two requests*, and every request extends it. The default `'1m'` is enough if processing a batch
+takes less than a minute. If it takes longer (e.g. you call an external service for every document),
+increase it, or decrease `batch_size`:
+
+```python
+async for users in User.scan_batches(batch_size=100, keep_alive='5m'):
+    await send_newsletter(users)  # This may be slow
+```
+
+An open point in time prevents ElasticSearch from deleting old index segments, which costs disk space and
+memory. So don't make `keep_alive` longer than necessary, and stop the iteration properly.
+
+### Performance tips
+
+- Don't set `sort` if you don't need a specific order, the index order is the fastest.
+- Use `_source` to fetch only the fields you need, it can reduce the transferred data a lot.
+- The default `batch_size` (1000) is good in most cases. Bigger batches mean fewer requests, but more
+  memory, and every batch must be processed within `keep_alive`.
+- The total number of hits is not counted (`track_total_hits=False`), because it would make every request
+  slower. If you need it, use `count()` with the same query.
+
+### OpenSearch
+
+`scan()` works the same way on OpenSearch (2.x and 3.x), ESORM converts the point in time API calls
+(`create_pit`, `delete_pit`) automatically.
+
 <a id="watchers"></a>
 ## Watchers
 
@@ -374,6 +542,7 @@ async def users(first_name: Optional[str] = None, last_name: Optional[str] = Non
     return await User.search_by_fields(first_name=first_name, last_name=last_name)
 ```
 
+<a id="fastapi-pagination"></a>
 ### FastAPI pagination
 
 You can add pagination and sort parameters as a dependency in endpoint arguments:
@@ -418,4 +587,40 @@ async def all_users(
 ) -> List[User]:
     """ Get all users """
     return await sort(pagination(User)).all()
+```
+
+<a id="fastapi-streaming-export"></a>
+### FastAPI streaming export
+
+`scan()` can be used to stream any number of documents from an endpoint, without loading all of them
+into memory. E.g. as [NDJSON](https://github.com/ndjson/ndjson-spec) (one JSON document per line):
+
+```python
+from contextlib import aclosing
+from typing import AsyncIterator
+from esorm import ESModelTimestamp
+from fastapi import FastAPI
+from fastapi.responses import StreamingResponse
+
+
+class User(ESModelTimestamp):
+    """ The User model """
+    first_name: str
+    last_name: str
+
+
+app = FastAPI()
+
+
+@app.get("/users/export")
+async def export_users() -> StreamingResponse:
+    """ Export all users as NDJSON """
+
+    async def generate() -> AsyncIterator[str]:
+        # If the client disconnects, the point in time is closed immediately
+        async with aclosing(User.scan(sort='last_name')) as users:
+            async for user in users:
+                yield user.model_dump_json() + '\n'
+
+    return StreamingResponse(generate(), media_type='application/x-ndjson')
 ```

@@ -49,13 +49,17 @@ ESORM is an ElasticSearch Object Relational Mapper or Object Document Mapper (OD
         - [Vector Search](#vector-search)
     - [Aggregations](#aggregations)
     - [Pagination and sorting](#pagination-and-sorting)
+    - [Iterating through all results (scan)](#iterating-through-all-results)
 - [🔬 Advanced usage](docs/advanced.md#advanced-usage)
     - [Optimistic concurrency control](docs/advanced.md#optimistic-concurrency-control)
     - [Lazy properties](docs/advanced.md#lazy-properties)
     - [Shard routing](docs/advanced.md#shard-routing)
     - [Retreive Selected Fields Only](docs/advanced.md#retreive-selected-fields-only)
+    - [Iterating through large result sets](docs/advanced.md#iterating-through-large-result-sets)
     - [Watchers](docs/advanced.md#watchers)
     - [FastAPI integration](docs/advanced.md#fastapi-integration)
+        - [FastAPI pagination](docs/advanced.md#fastapi-pagination)
+        - [FastAPI streaming export](docs/advanced.md#fastapi-streaming-export)
 - [🖥 IDE Support](#ide-support)
 - [🧪 Testing](#testing)
 - [🛡 License](#license)
@@ -98,6 +102,7 @@ pip install pyesorm[opensearch]
 - Support for OpenSearch 3.x and 2.x
 - Watcher support (You may need ElasticSearch subscription license for this)
 - Pagination and sorting
+- Iterating through any number of results efficiently (point in time + `search_after`)
 - FastAPI integration
 
 Not all ElasticSearch features are supported yet, pull requests are welcome.
@@ -1232,6 +1237,44 @@ def get_user_sorted_by_name():
     # Here the result is sorted by age descending
     return res
 ```
+
+<a id="iterating-through-all-results"></a>
+### Iterating through all results (scan)
+
+Pagination is for showing results to users, it can't go deeper than 10,000 results by default
+(`index.max_result_window`). To process all results of a query (e.g. export, reindex, batch jobs),
+use `scan()`, which can iterate through any number of documents efficiently:
+
+```python
+from esorm import ESModel
+
+
+class User(ESModel):
+    name: str
+    age: int
+
+
+async def process_adults():
+    async for user in User.scan({'range': {'age': {'gte': 18}}}):
+        print(user.name)
+```
+
+To process the documents in batches (e.g. with bulk operations), use `scan_batches()`:
+
+```python
+async def process_in_batches():
+    async for users in User.scan_batches(batch_size=500):
+        # Here `users` is a list of maximum 500 models
+        print(len(users))
+```
+
+It uses a point in time (PIT) with `search_after`, so the results are consistent: changes made during
+the iteration are not visible. Sorting, the `Sort` decorator, `_source` and shard routing work like
+in `search()`.
+
+If the iteration may be stopped early (e.g. by `break`), wrap it in `contextlib.aclosing()` to close
+the point in time immediately. More details in
+[Iterating through large result sets](docs/advanced.md#iterating-through-large-result-sets).
 
 <a id="ide-support"></a>
 ## 🖥 IDE Support

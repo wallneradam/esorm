@@ -2,7 +2,7 @@
 This module contains the ESModel classes and related functions
 """
 from typing import (TypeVar, Any, Dict, Optional, Tuple, Type, Union, get_args, get_origin, List, Callable,
-                    Awaitable, Literal, cast)
+                    Awaitable, AsyncIterator, Literal, cast)
 from typing_extensions import TypedDict, Annotated
 from enum import Enum, IntEnum
 
@@ -11,6 +11,7 @@ import ast
 import inspect
 import textwrap
 import traceback
+from contextlib import aclosing
 from contextvars import ContextVar
 from datetime import datetime, date, time
 from functools import wraps
@@ -826,6 +827,137 @@ class ESModel(ESBaseModel):
         return await cls.search({'match_all': {}}, index=index, **kwargs)
 
     @classmethod
+    async def scan_batches(cls: Type[TModel],
+                           query: Optional[ESQuery] = None,
+                           *,
+                           batch_size: int = 1000,
+                           sort: Optional[Union[list, str]] = None,
+                           keep_alive: str = '1m',
+                           routing: Optional[str] = None,
+                           index: Optional[str] = None,
+                           _source: Optional[Union[str, List[str]]] = None,
+                           **kwargs) -> AsyncIterator[List[TModel]]:
+        """
+        Iterate through all results of a query in batches
+
+        It uses a point in time (PIT) with `search_after`, so any number of documents can be iterated through
+        efficiently, and the results are consistent: changes made during the iteration are not visible.
+        A unique tiebreaker (`_shard_doc`, or `_id` on OpenSearch 2.x) is added to the sort, so no document is
+        lost or duplicated, even if the sort field is not unique.
+
+        The point in time is closed when the iteration ends. If the iteration may be stopped early (e.g. by
+        `break`), use `contextlib.aclosing()` to close it immediately, not only when the iterator is garbage
+        collected.
+
+        Example::
+
+            async for users in User.scan_batches({'range': {'age': {'gte': 18}}}, batch_size=500):
+                async with ESBulk() as bulk:
+                    for user in users:
+                        user.adult = True
+                        await bulk.save(user)
+
+        :param query: ElasticSearch query dict, if not set, all documents are returned
+        :param batch_size: The number of documents to fetch in one request
+        :param sort: Name of field to be sorted, or sort term list of dict, if not specified, model's default sort
+                     will be used, or the index order, which is the most efficient
+        :param keep_alive: How long the point in time is kept alive between two requests, increase it if
+                           processing a batch takes longer
+        :param routing: Shard routing value
+        :param index: Index name, if not set, it will use the index from ESConfig
+        :param _source: Fields to return, if not set, it will return all fields
+        :param kwargs: Other search API params
+        :return: Async iterator of result lists, each list has maximum `batch_size` models
+        """
+        if isinstance(sort, str):
+            sort = [{sort: {'order': 'asc'}}]
+        elif sort is None:
+            sort = cls.ESConfig.default_sort or []
+        # A unique tiebreaker is needed for search_after, OpenSearch doesn't add it automatically
+        if not any(_sort_field(s) == '_shard_doc' for s in sort):
+            sort = [*sort, {'_shard_doc': {'order': 'asc'}}]
+        if 'request_timeout' not in kwargs:
+            kwargs['request_timeout'] = 60
+
+        pit = await es.open_point_in_time(index=index or cls.ESConfig.index, keep_alive=keep_alive,
+                                          routing=routing, request_timeout=kwargs['request_timeout'])
+        pit_id = pit['id']
+        search_after = None
+        try:
+            while True:
+                try:
+                    # The index must not be set, it comes from the point in time
+                    res = await es.search(pit={'id': pit_id, 'keep_alive': keep_alive}, query=query,
+                                          size=batch_size, sort=sort, search_after=search_after,
+                                          track_total_hits=False, seq_no_primary_term=True, version=True,
+                                          _source=_source, **kwargs)
+                except elasticsearch.BadRequestError as e:
+                    # Older OpenSearch versions (2.x) don't support _shard_doc, _id is used instead
+                    if search_after is None and is_opensearch() and '_shard_doc' in str(e.body):
+                        sort = [({'_id': s['_shard_doc']} if isinstance(s, dict) else '_id')
+                                if _sort_field(s) == '_shard_doc' else s for s in sort]
+                        continue
+                    raise
+                # The id of the point in time may change between requests
+                pit_id = res.get('pit_id', pit_id)
+                hits = res['hits']['hits']
+                if not hits:
+                    break
+                yield await _lazy_process_results([cls.from_es(hit) for hit in hits])
+                search_after = hits[-1]['sort']
+        finally:
+            try:
+                await es.close_point_in_time(id=pit_id, request_timeout=kwargs['request_timeout'])
+            except Exception as e:  # It expires after keep_alive anyway
+                logger.warning(f"Failed to close point in time: {e}")
+
+    @classmethod
+    async def scan(cls: Type[TModel],
+                   query: Optional[ESQuery] = None,
+                   *,
+                   batch_size: int = 1000,
+                   sort: Optional[Union[list, str]] = None,
+                   keep_alive: str = '1m',
+                   routing: Optional[str] = None,
+                   index: Optional[str] = None,
+                   _source: Optional[Union[str, List[str]]] = None,
+                   **kwargs) -> AsyncIterator[TModel]:
+        """
+        Iterate through all results of a query
+
+        It fetches the documents in batches, see :meth:`scan_batches` for details.
+
+        Example::
+
+            async for user in User.scan({'range': {'age': {'gte': 18}}}):
+                print(user.name)
+
+            # Close the point in time immediately if the iteration is stopped early
+            async with contextlib.aclosing(User.scan(sort='name')) as users:
+                async for user in users:
+                    if user.name == 'admin':
+                        break
+
+        :param query: ElasticSearch query dict, if not set, all documents are returned
+        :param batch_size: The number of documents to fetch in one request
+        :param sort: Name of field to be sorted, or sort term list of dict, if not specified, model's default sort
+                     will be used, or the index order, which is the most efficient
+        :param keep_alive: How long the point in time is kept alive between two requests, increase it if
+                           processing a batch takes longer
+        :param routing: Shard routing value
+        :param index: Index name, if not set, it will use the index from ESConfig
+        :param _source: Fields to return, if not set, it will return all fields
+        :param kwargs: Other search API params
+        :return: Async iterator of results
+        """
+        async with aclosing(cls.scan_batches(query, batch_size=batch_size, sort=sort, keep_alive=keep_alive,
+                                             routing=routing, index=index, _source=_source,
+                                             **kwargs)) as batches:
+            async for batch in batches:
+                for doc in batch:
+                    yield doc
+
+    @classmethod
     async def count(cls: Type[TModel], query: Optional[ESQuery] = None,
                     routing: Optional[str] = None, index: Optional[str] = None, **kwargs) -> int:
         """
@@ -921,6 +1053,16 @@ def set_max_lazy_property_concurrency(concurrency: int):
     global _lazy_semaphore_concurrency
     _lazy_semaphore_concurrency = concurrency
     _lazy_property_semaphore.set(asyncio.Semaphore(concurrency))
+
+
+def _sort_field(sort: Union[str, Dict[str, Any]]) -> str:
+    """
+    Get the field name of a sort term
+
+    :param sort: Sort term, e.g. `'f_int'` or `{'f_int': {'order': 'asc'}}`
+    :return: The field name
+    """
+    return sort if isinstance(sort, str) else next(iter(sort))
 
 
 async def _lazy_process_results(res: Union[List[ESModel], ESModel, Dict[str, ESModel]]) \
@@ -1141,6 +1283,13 @@ class Sort(BaseModel):
                               **kwargs) -> ESResponse:
                 sort = self.sort if sort is None else sort
                 return await model_cls._search(query, page_size=page_size, page=page, sort=sort, **kwargs)
+
+            @classmethod
+            def scan_batches(cls, query: Optional[ESQuery] = None, *,
+                             sort: Optional[Union[list, str]] = None,
+                             **kwargs) -> AsyncIterator[List[TModel]]:
+                sort = self.sort if sort is None else sort
+                return model_cls.scan_batches(query, sort=sort, **kwargs)
 
             def __reduce__(self):
                 # When serializing, restore as an instance of the original class
