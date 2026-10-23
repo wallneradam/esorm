@@ -30,7 +30,7 @@ jobs:
       - name: Install Python ${{ matrix.python }} and dependencies
         run: |
           uv venv --python ${{ matrix.python }} .venv
-          uv pip install --python .venv -e ".[dev]"
+          uv pip install --python .venv -e . --group test
 
       - name: Pull Elasticsearch / OpenSearch image
         run: docker compose -f tests/docker-compose.yml pull ${{ matrix.service }}

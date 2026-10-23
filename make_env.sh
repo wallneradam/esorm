@@ -31,7 +31,7 @@ fi
 # Install dependencies and package in development mode into virtualenv
 echo "Installing dependencies and package..."
 python -m pip install --upgrade pip >/dev/null 2>&1
-python -m pip install -e ".[dev]"
+python -m pip install -e . --group dev
 
 deactivate
 
