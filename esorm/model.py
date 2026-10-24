@@ -38,6 +38,7 @@ from .aggs import ESAgg, ESNamedAggs, ESAggsResponse
 from .error import InvalidResponseError, NotFoundError, ConflictError as ESORMConflictError
 from .esorm import es, get_es_version, is_opensearch
 from .query import ESQuery, ESValue
+from .builder import Query
 
 if TYPE_CHECKING:
     from ._model_methods import SearchMethod, SearchOneMethod, ScanMethod, ScanBatchesMethod
@@ -657,7 +658,7 @@ class ESModel(ESBaseModel):
 
     @classmethod
     async def _search(cls: Type[TModel],
-                      query: Optional[ESQuery] = None,
+                      query: Union[ESQuery, Query, None] = None,
                       *,
                       page_size: Optional[int] = None,
                       page: Optional[int] = None,
@@ -669,7 +670,7 @@ class ESModel(ESBaseModel):
         """
         Raw ES search method
 
-        :param query: ElasticSearch query dict
+        :param query: ElasticSearch query dict or builder query
         :param page_size: Pagination page size
         :param page: Pagination page num, 1st page is 1
         :param sort: Name of field to be sorted, or sort term list of dict, if not specified, model's default sort will
@@ -680,6 +681,8 @@ class ESModel(ESBaseModel):
         :param kwargs: Other search API params
         :return: Raw ES response.
         """
+        if isinstance(query, Query):
+            query = query.to_query()
         if isinstance(sort, str):
             sort = [{sort: {'order': 'asc'}}]
         elif sort is None and cls.ESConfig.default_sort is not None:
@@ -702,7 +705,7 @@ class ESModel(ESBaseModel):
         search: ClassVar['SearchMethod']
     else:
         @classmethod
-        async def search(cls: Type[TModel], query: ESQuery, *,
+        async def search(cls: Type[TModel], query: Union[ESQuery, Query], *,
                          page_size: Optional[int] = None,
                          page: Optional[int] = None,
                          sort: Optional[Union[List[Any], str]] = None,
@@ -712,9 +715,9 @@ class ESModel(ESBaseModel):
                          _source: Optional[Union[str, List[str]]] = None,
                          **kwargs: Any) -> Union[List[TModel], Dict[str, TModel]]:
             """
-            Search Model with query dict
+            Search Model with query dict or builder query
 
-            :param query: ElasticSearch query dict
+            :param query: ElasticSearch query dict or builder query
             :param page_size: Pagination page size
             :param page: Pagination page num, 1st page is 1
             :param sort: Name of field to be sorted, or sort term list of dict, if not specified, model's default sort
@@ -742,14 +745,14 @@ class ESModel(ESBaseModel):
         search_one: ClassVar['SearchOneMethod']
     else:
         @classmethod
-        async def search_one(cls: Type[TModel], query: ESQuery, *, routing: Optional[str] = None,
+        async def search_one(cls: Type[TModel], query: Union[ESQuery, Query], *, routing: Optional[str] = None,
                              index: Optional[str] = None,
                              _source: Optional[Union[str, List[str]]] = None,
                              **kwargs: Any) -> Optional[TModel]:
             """
             Search Model and return the first result
 
-            :param query: ElasticSearch query dict
+            :param query: ElasticSearch query dict or builder query
             :param routing: Shard routing value
             :param index: Index name, if not set, it will use the index from ESConfig
             :param _source: Fields to return, if not set, it will return all fields
@@ -896,7 +899,7 @@ class ESModel(ESBaseModel):
     else:
         @classmethod
         async def scan_batches(cls: Type[TModel],
-                               query: Optional[ESQuery] = None,
+                               query: Union[ESQuery, Query, None] = None,
                                *,
                                batch_size: int = 1000,
                                sort: Optional[Union[List[Any], str]] = None,
@@ -925,7 +928,7 @@ class ESModel(ESBaseModel):
                             user.adult = True
                             await bulk.save(user)
 
-            :param query: ElasticSearch query dict, if not set, all documents are returned
+            :param query: ElasticSearch query dict or builder query, if not set, all documents are returned
             :param batch_size: The number of documents to fetch in one request
             :param sort: Name of field to be sorted, or sort term list of dict, if not specified, model's default sort
                          will be used, or the index order, which is the most efficient
@@ -937,6 +940,8 @@ class ESModel(ESBaseModel):
             :param kwargs: Other search API params
             :return: Async iterator of result lists, each list has maximum `batch_size` models
             """
+            if isinstance(query, Query):
+                query = query.to_query()
             if isinstance(sort, str):
                 sort = [{sort: {'order': 'asc'}}]
             elif sort is None:
@@ -984,7 +989,7 @@ class ESModel(ESBaseModel):
     else:
         @classmethod
         async def scan(cls: Type[TModel],
-                       query: Optional[ESQuery] = None,
+                       query: Union[ESQuery, Query, None] = None,
                        *,
                        batch_size: int = 1000,
                        sort: Optional[Union[List[Any], str]] = None,
@@ -1009,7 +1014,7 @@ class ESModel(ESBaseModel):
                         if user.name == 'admin':
                             break
 
-            :param query: ElasticSearch query dict, if not set, all documents are returned
+            :param query: ElasticSearch query dict or builder query, if not set, all documents are returned
             :param batch_size: The number of documents to fetch in one request
             :param sort: Name of field to be sorted, or sort term list of dict, if not specified, model's default sort
                          will be used, or the index order, which is the most efficient
@@ -1040,13 +1045,20 @@ class ESModel(ESBaseModel):
     async def count(cls: Type[TModel], query: Optional[ESQuery] = None,
                     routing: Optional[str] = None, index: Optional[str] = None, **kwargs: Any) -> int: ...
 
+    # Builder queries have their own overload after the query dict ones, because PyCharm reports correct dict
+    # literals if the parameter is a union of a TypedDict and something else
+    @overload
     @classmethod
-    async def count(cls: Type[TModel], query: Optional[ESQuery] = None,
+    async def count(cls: Type[TModel], query: Query,
+                    routing: Optional[str] = None, index: Optional[str] = None, **kwargs: Any) -> int: ...
+
+    @classmethod
+    async def count(cls: Type[TModel], query: Union[ESQuery, Query, None] = None,
                     routing: Optional[str] = None, index: Optional[str] = None, **kwargs: Any) -> int:
         """
         Count documents in the index
 
-        :param query: ElasticSearch query dict
+        :param query: ElasticSearch query dict or builder query
         :param routing: Shard routing value
         :param index: Index name, if not set, it will use the index from ESConfig
         :param kwargs: Other search API params
@@ -1102,11 +1114,32 @@ class ESModel(ESBaseModel):
                         index: Optional[str] = None,
                         **kwargs: Any) -> ESAggsResponse: ...
 
+    # Builder queries have their own overloads after the query dict ones (see count())
+    @overload
+    @classmethod
+    async def aggregate(cls: Type[TModel],
+                        aggs: ESNamedAggs,
+                        *,
+                        query: Query,
+                        routing: Optional[str] = None,
+                        index: Optional[str] = None,
+                        **kwargs: Any) -> ESAggsResponse: ...
+
+    @overload
     @classmethod
     async def aggregate(cls: Type[TModel],
                         aggs: Mapping[str, ESAgg],
                         *,
-                        query: Optional[ESQuery] = None,
+                        query: Query,
+                        routing: Optional[str] = None,
+                        index: Optional[str] = None,
+                        **kwargs: Any) -> ESAggsResponse: ...
+
+    @classmethod
+    async def aggregate(cls: Type[TModel],
+                        aggs: Mapping[str, ESAgg],
+                        *,
+                        query: Union[ESQuery, Query, None] = None,
                         routing: Optional[str] = None,
                         index: Optional[str] = None,
                         **kwargs: Any) -> ESAggsResponse:
@@ -1115,7 +1148,7 @@ class ESModel(ESBaseModel):
         Before aggregation the model can be filtered by query dict.
 
         :param aggs: Aggregation dict
-        :param query: ElasticSearch query dict
+        :param query: ElasticSearch query dict or builder query
         :param routing: Shard routing value
         :param index: Index name, if not set, it will use the index from ESConfig
         :param kwargs: Other search API params
@@ -1339,7 +1372,7 @@ class Pagination(BaseModel):
 
             # noinspection PyProtectedMember
             @classmethod
-            async def _search(cls, query: ESQuery, *,
+            async def _search(cls, query: Union[ESQuery, Query, None], *,
                               page_size: Optional[int] = None,
                               page: int = None,
                               sort: Optional[Union[List[Any], str]] = None,
@@ -1407,7 +1440,7 @@ class Sort(BaseModel):
 
             # noinspection PyProtectedMember
             @classmethod
-            async def _search(cls, query: ESQuery, *,
+            async def _search(cls, query: Union[ESQuery, Query, None], *,
                               page_size: Optional[int] = None,
                               page: int = None,
                               sort: Optional[Union[List[Any], str]] = None,
@@ -1416,7 +1449,7 @@ class Sort(BaseModel):
                 return await model_cls._search(query, page_size=page_size, page=page, sort=sort, **kwargs)
 
             @classmethod
-            def scan_batches(cls, query: Optional[ESQuery] = None, *,
+            def scan_batches(cls, query: Union[ESQuery, Query, None] = None, *,
                              sort: Optional[Union[List[Any], str]] = None,
                              **kwargs: Any) -> AsyncGenerator[List[TModel], None]:
                 sort = self.sort if sort is None else sort

@@ -1252,6 +1252,88 @@ class TestBaseTests:
         })
         assert count == 5
 
+    async def test_query_builder(self, es, esorm):
+        """
+        Test the queries of the query builder
+        """
+        from typing import List, Optional
+        from esorm.builder import Bool, Term, Terms, Range, Match, Exists, Nested, GeoDistance, Ids
+
+        class BuilderComment(esorm.ESBaseModel):
+            author: esorm.fields.keyword
+            stars: int
+
+        class BuilderModel(esorm.ESModel):
+            id: int
+            name: esorm.fields.text
+            age: int
+            tags: List[esorm.fields.keyword] = []
+            email: Optional[esorm.fields.keyword] = None
+            comments: List[BuilderComment] = []
+            location: Optional[esorm.fields.geo_point] = None
+
+        await esorm.setup_mappings()
+
+        budapest = {'lat': 47.4979, 'lon': 19.0402}
+        for doc in [
+            BuilderModel(id=1, name='John Doe', age=30, tags=['python', 'es'], email='john@example.com',
+                         comments=[BuilderComment(author='anna', stars=5)], location=budapest),
+            BuilderModel(id=2, name='Jane Doe', age=17, tags=['python'],
+                         comments=[BuilderComment(author='anna', stars=2), BuilderComment(author='bob', stars=5)]),
+            BuilderModel(id=3, name='John Smith', age=45, tags=['docker'],
+                         location={'lat': 46.2530, 'lon': 20.1414}),
+        ]:
+            await doc.save(wait_for=True)
+
+        async def ids(query) -> List[int]:
+            return sorted(doc.id for doc in await BuilderModel.search(query))
+
+        # Parameters and with blocks give the same query and results
+        q1 = Bool(must=[Match('name', 'John')], filter=[Range('age', gte=18)], must_not=[Exists('email')])
+        with Bool() as q2:
+            Match('name', 'John')
+            with q2.filter:
+                Range('age', gte=18)
+            with q2.must_not:
+                Exists('email')
+        assert q1.to_query() == q2.to_query()
+        assert await ids(q1) == [3]
+        assert await ids(q2) == [3]
+        # The query dict gives the same result
+        assert sorted(doc.id for doc in await BuilderModel.search(q1.to_query())) == [3]
+
+        # Operators
+        assert await ids(Terms('tags', ['docker', 'es'])) == [1, 3]
+        assert await ids(Term('tags', 'python') & ~Term('tags', 'es')) == [2]
+        assert await ids(Range('age', lt=18) | Term('tags', 'docker')) == [2, 3]
+        assert await ids(Ids(['1', '3'])) == [1, 3]
+
+        # Nested documents: the same comment must match both conditions
+        with Nested('comments') as nested:
+            Term('comments.author', 'anna')
+            Range('comments.stars', gte=4)
+        assert await ids(nested) == [1]
+
+        # Geo distance
+        assert await ids(GeoDistance('location', budapest, '10km')) == [1]
+
+        # The other methods accept builder queries too
+        doc = await BuilderModel.search_one(Term('tags', 'docker'))
+        assert doc is not None and doc.id == 3
+        assert await BuilderModel.count(Term('tags', 'python')) == 2
+        aggs = await BuilderModel.aggregate({'avg_age': {'avg': {'field': 'age'}}}, query=Match('name', 'Doe'))
+        assert aggs['avg_age']['value'] == 23.5
+        assert sorted([doc.id async for doc in BuilderModel.scan(Term('tags', 'python'), batch_size=1)]) == [1, 2]
+        assert [len(batch) async for batch in BuilderModel.scan_batches(Terms('tags', ['python', 'docker']),
+                                                                         batch_size=2)] == [2, 1]
+
+        # Decorated models
+        sorted_model = esorm.Sort(sort=[{'age': {'order': 'desc'}}])(BuilderModel)
+        assert [doc.id for doc in await sorted_model.search(Range('age', gte=18))] == [3, 1]
+        assert [doc.id async for doc in sorted_model.scan(Range('age', gte=18))] == [3, 1]
+        paginated_model = esorm.Pagination(page=2, page_size=1)(BuilderModel)
+        assert [doc.id for doc in await paginated_model.search(Range('age', gte=18), sort='age')] == [3]
+
     async def test_scan(self, es, esorm, monkeypatch):
         """
         Test iterating through all results with scan
