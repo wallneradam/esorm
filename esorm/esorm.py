@@ -67,7 +67,7 @@ class _CompatTransportMixin:
                     pass
             return self._server_major
 
-    async def perform_request(self, method: str, target: str, **kwargs) -> TransportApiResponse:
+    async def perform_request(self, method: str, target: str, **kwargs: Any) -> TransportApiResponse:
         headers = kwargs.get('headers')
         if isinstance(headers, Mapping) and any(_COMPAT_RE.search(headers.get(h) or '')
                                                 for h in ('accept', 'content-type')):
@@ -152,7 +152,7 @@ def _opensearch_kwargs(kwargs: Dict[str, Any]) -> Dict[str, Any]:
 
 
 async def connect(hosts: Union[str, Union[List[Union[str, Mapping[str, Union[str, int]], NodeConfig]], None]],
-                  *args, wait=False, backend: Optional[Backend] = None, **kwargs) -> Optional[AsyncElasticsearch]:
+                  *args, wait=False, backend: Optional[Backend] = None, **kwargs: Any) -> Optional[AsyncElasticsearch]:
     """
     Connect to ElasticSearch or OpenSearch
 

@@ -2,7 +2,7 @@
 This module contains the ESModel classes and related functions
 """
 from typing import (TypeVar, Any, Dict, Optional, Tuple, Type, Union, get_args, get_origin, List, Callable,
-                    Awaitable, AsyncIterator, Literal, cast)
+                    Awaitable, AsyncGenerator, Literal, Mapping, ClassVar, TYPE_CHECKING, overload)
 from typing_extensions import TypedDict, Annotated
 from enum import Enum, IntEnum
 
@@ -18,11 +18,12 @@ from functools import wraps
 
 import elasticsearch
 from elasticsearch import NotFoundError as ElasticNotFoundError, ConflictError as ElasticConflictError
-from pydantic import main as pydantic_main
 from pydantic import BaseModel, ConfigDict
 from pydantic.fields import Field, PrivateAttr
 # noinspection PyProtectedMember
 from pydantic.fields import FieldInfo  # It is just not in __all__ of pydantic.fields, but we strongly need it
+# noinspection PyProtectedMember
+from pydantic._internal import _model_construction  # The metaclass and field collection of pydantic models
 from pydantic_core import Url
 from pydantic.networks import IPvAnyAddress
 from pydantic import AnyUrl
@@ -32,11 +33,14 @@ from pathlib import Path
 from ipaddress import IPv4Address, IPv6Address
 
 from .utils import snake_case, utcnow
-from .aggs import ESAggs, ESAggsResponse
+from .aggs import ESAgg, ESNamedAggs, ESAggsResponse
 
 from .error import InvalidResponseError, NotFoundError, ConflictError as ESORMConflictError
 from .esorm import es, get_es_version, is_opensearch
-from .query import ESQuery, ESMust
+from .query import ESQuery, ESValue
+
+if TYPE_CHECKING:
+    from ._model_methods import SearchMethod, SearchOneMethod, ScanMethod, ScanBatchesMethod
 from .response import ESResponse, Hit
 
 from .logger import logger
@@ -59,8 +63,6 @@ __all__ = [
 # Global variables and types
 #
 
-# noinspection PyProtectedMember
-_model_construction = getattr(pydantic_main, '_model_construction')
 ModelMetaclass = _model_construction.ModelMetaclass
 
 _default_index_prefix = 'esorm_'
@@ -142,7 +144,7 @@ def _patch_set_model_fields():
     """
     orig_set_model_fields = _model_construction.set_model_fields
 
-    def set_model_fields(model: Type[BaseModel], *args, **kwargs) -> None:
+    def set_model_fields(model: Type[BaseModel], *args, **kwargs: Any) -> None:
         orig_set_model_fields(model, *args, **kwargs)
         _description_from_docstring(model)
 
@@ -226,18 +228,23 @@ class ESBaseModel(BaseModel, metaclass=_ESModelMeta):
     It is useful for nested models, if you don't need the model in ES mappings
     """
 
-    class ESConfig:
-        """
-        ESBaseModel Config
+    if TYPE_CHECKING:
+        # Every model can have its own ESConfig class, which is not a subclass of this one. Type checkers would report
+        # that as an incompatible override, so for them it is just a class variable.
+        ESConfig: ClassVar[Any]
+    else:
+        class ESConfig:
+            """
+            ESBaseModel Config
 
-        This is just for lazy properties, to make ESBasemodel compatible with them
-        """
+            This is just for lazy properties, to make ESBasemodel compatible with them
+            """
 
-        lazy_property_max_recursion_depth: int = 1
-        """ Maximum recursion depth of lazy properties """
+            lazy_property_max_recursion_depth: int = 1
+            """ Maximum recursion depth of lazy properties """
 
-        _lazy_properties: Dict[str, Callable[['ESBaseModel'], Awaitable[Any]]] = {}
-        """ Lazy property async function definitions """
+            _lazy_properties: Dict[str, Callable[['ESBaseModel'], Awaitable[Any]]] = {}
+            """ Lazy property async function definitions """
 
     model_config = ConfigDict(
         str_strip_whitespace=True,
@@ -285,28 +292,31 @@ class ESModel(ESBaseModel):
     _seq_no: Optional[int] = PrivateAttr(None)
     """ The sequence number of the document """
 
-    class ESConfig:
-        """ ESModel Config """
-        index: Optional[str] = None
-        """ The index name """
-        
-        skip_init: Optional[bool] = False
-        """ Flag to skip model mapping creation """
+    if TYPE_CHECKING:
+        ESConfig: ClassVar[Any]
+    else:
+        class ESConfig:
+            """ ESModel Config """
+            index: Optional[str] = None
+            """ The index name """
 
-        id_field: Optional[str] = None
-        """ The name of the 'id' field """
+            skip_init: Optional[bool] = False
+            """ Flag to skip model mapping creation """
 
-        default_sort: Optional[List[Dict[str, Dict[str, str]]]] = None
-        """ Default sort """
+            id_field: Optional[str] = None
+            """ The name of the 'id' field """
 
-        settings: Optional[Dict[str, Any]] = None
-        """ Index settings """
+            default_sort: Optional[List[Dict[str, Dict[str, str]]]] = None
+            """ Default sort """
 
-        lazy_property_max_recursion_depth: int = 1
-        """ Maximum recursion depth of lazy properties """
+            settings: Optional[Dict[str, Any]] = None
+            """ Index settings """
 
-        _lazy_properties: Dict[str, Callable[[], Awaitable[Any]]] = {}
-        """ Lazy property async function definitions """
+            lazy_property_max_recursion_depth: int = 1
+            """ Maximum recursion depth of lazy properties """
+
+            _lazy_properties: Dict[str, Callable[[], Awaitable[Any]]] = {}
+            """ Lazy property async function definitions """
 
     @property
     def __id__(self) -> str:
@@ -330,7 +340,7 @@ class ESModel(ESBaseModel):
 
     @classmethod
     async def call(cls: Type[TModel], method_name, *, index: Optional[str] = None,
-                   **kwargs) -> Union[dict, ESResponse]:
+                   **kwargs: Any) -> Union[dict, ESResponse]:
         """
         Call an elasticsearch method
 
@@ -407,7 +417,7 @@ class ESModel(ESBaseModel):
                     _exclude[k] = res
         return _exclude
 
-    def to_es(self, **kwargs) -> dict:
+    def to_es(self, **kwargs: Any) -> dict:
         """
         Generates a dictionary equivalent to what ElasticSearch returns in the '_source' property of a response.
 
@@ -582,7 +592,8 @@ class ESModel(ESBaseModel):
     # noinspection PyShadowingBuiltins
     @classmethod
     async def get(cls: Type[TModel], id: Union[str, int, float], *, routing: Optional[str] = None,
-                  index: Optional[str] = None, _source: Optional[Union[str, List[str]]] = None, **kwargs) -> TModel:
+                  index: Optional[str] = None, _source: Optional[Union[str, List[str]]] = None,
+                  **kwargs: Any) -> TModel:
         """
         Fetches document and returns ESModel instance populated with properties.
 
@@ -629,7 +640,7 @@ class ESModel(ESBaseModel):
         except ElasticNotFoundError:
             raise NotFoundError(f"Document with id {self.__id__} not found!")
 
-    async def reload(self, *, routing: Optional[str] = None) -> 'ESModel':
+    async def reload(self: TModel, *, routing: Optional[str] = None) -> TModel:
         """
         Reloads the document from ElasticSearch
 
@@ -650,11 +661,11 @@ class ESModel(ESBaseModel):
                       *,
                       page_size: Optional[int] = None,
                       page: Optional[int] = None,
-                      sort: Optional[Union[list, str]] = None,
+                      sort: Optional[Union[List[Any], str]] = None,
                       routing: Optional[str] = None,
-                      aggs: Optional[ESAggs] = None,
+                      aggs: Optional[Mapping[str, ESAgg]] = None,
                       index: Optional[str] = None,
-                      **kwargs) -> ESResponse:
+                      **kwargs: Any) -> ESResponse:
         """
         Raw ES search method
 
@@ -685,65 +696,74 @@ class ESModel(ESBaseModel):
                               seq_no_primary_term=True, version=True,
                               **kwargs)
 
-    @classmethod
-    async def search(cls: Type[TModel], query: ESQuery, *,
-                     page_size: Optional[int] = None,
-                     page: Optional[int] = None,
-                     sort: Optional[Union[list, str]] = None,
-                     routing: Optional[str] = None,
-                     res_dict: bool = False,
-                     index: Optional[str] = None,
-                     _source: Optional[Union[str, List[str]]] = None,
-                     **kwargs) -> Union[List[TModel], Dict[str, TModel]]:
-        """
-        Search Model with query dict
-
-        :param query: ElasticSearch query dict
-        :param page_size: Pagination page size
-        :param page: Pagination page num, 1st page is 1
-        :param sort: Name of field to be sorted, or sort term list of dict, if not specified, model's default sort will
-                     be used, or no sorting
-        :param routing: Shard routing value
-        :param res_dict: If the result should be a dict with id as key and model as value instead of a list of models
-        :param index: Index name, if not set, it will use the index from ESConfig
-        :param _source: Fields to return, if not set, it will return all fields
-        :param kwargs: Other search API params
-        :return: The result list
-        """
-        res = await cls._search(query, page_size=page_size, page=page, sort=sort, routing=routing,
-                                index=index, _source=_source, **kwargs)
-        try:
-            if res_dict:
-                res = {hit['_id']: cls.from_es(hit) for hit in res['hits']['hits']}
-            else:
-                res = [cls.from_es(hit) for hit in res['hits']['hits']]
-            return await _lazy_process_results(res)
-        except KeyError:
-            return []
-
-    @classmethod
-    async def search_one(cls: Type[TModel], query: ESQuery, *, routing: Optional[str] = None,
+    # For type checkers search(), search_one(), scan() and scan_batches() are descriptors, see _model_methods.pyi:
+    # PyCharm can't infer the type of their results if the query is a dict literal
+    if TYPE_CHECKING:
+        search: ClassVar['SearchMethod']
+    else:
+        @classmethod
+        async def search(cls: Type[TModel], query: ESQuery, *,
+                         page_size: Optional[int] = None,
+                         page: Optional[int] = None,
+                         sort: Optional[Union[List[Any], str]] = None,
+                         routing: Optional[str] = None,
+                         res_dict: bool = False,
                          index: Optional[str] = None,
                          _source: Optional[Union[str, List[str]]] = None,
-                         **kwargs) -> Optional[TModel]:
-        """
-        Search Model and return the first result
+                         **kwargs: Any) -> Union[List[TModel], Dict[str, TModel]]:
+            """
+            Search Model with query dict
 
-        :param query: ElasticSearch query dict
-        :param routing: Shard routing value
-        :param index: Index name, if not set, it will use the index from ESConfig
-        :param _source: Fields to return, if not set, it will return all fields
-        :param kwargs: Other search API params
-        :return: The first result or None if no result
-        """
-        res = await cls.search(query, page_size=1, routing=routing, _source=_source, index=index, **kwargs)
-        if len(res) > 0:
-            return res[0]
-        else:
-            return None
+            :param query: ElasticSearch query dict
+            :param page_size: Pagination page size
+            :param page: Pagination page num, 1st page is 1
+            :param sort: Name of field to be sorted, or sort term list of dict, if not specified, model's default sort
+                         will be used, or no sorting
+            :param routing: Shard routing value
+            :param res_dict: If the result should be a dict with id as key and model as value instead of a list of
+                             models
+            :param index: Index name, if not set, it will use the index from ESConfig
+            :param _source: Fields to return, if not set, it will return all fields
+            :param kwargs: Other search API params
+            :return: The result list, or a dict of id - model pairs if `res_dict` is True
+            """
+            res = await cls._search(query, page_size=page_size, page=page, sort=sort, routing=routing,
+                                    index=index, _source=_source, **kwargs)
+            try:
+                if res_dict:
+                    res = {hit['_id']: cls.from_es(hit) for hit in res['hits']['hits']}
+                else:
+                    res = [cls.from_es(hit) for hit in res['hits']['hits']]
+                return await _lazy_process_results(res)
+            except KeyError:
+                return {} if res_dict else []
+
+    if TYPE_CHECKING:
+        search_one: ClassVar['SearchOneMethod']
+    else:
+        @classmethod
+        async def search_one(cls: Type[TModel], query: ESQuery, *, routing: Optional[str] = None,
+                             index: Optional[str] = None,
+                             _source: Optional[Union[str, List[str]]] = None,
+                             **kwargs: Any) -> Optional[TModel]:
+            """
+            Search Model and return the first result
+
+            :param query: ElasticSearch query dict
+            :param routing: Shard routing value
+            :param index: Index name, if not set, it will use the index from ESConfig
+            :param _source: Fields to return, if not set, it will return all fields
+            :param kwargs: Other search API params
+            :return: The first result or None if no result
+            """
+            res = await cls.search(query, page_size=1, routing=routing, _source=_source, index=index, **kwargs)
+            if len(res) > 0:
+                return res[0]
+            else:
+                return None
 
     @staticmethod
-    def create_query_from_dict(fields: Dict[str, Union[str, int, float]]) -> ESQuery:
+    def create_query_from_dict(fields: Mapping[str, ESValue]) -> ESQuery:
         """
         Creates a query dict from a dictionary of fields and values
 
@@ -752,27 +772,72 @@ class ESModel(ESBaseModel):
         """
         return {
             'bool': {
-                'must': cast(ESMust, [{
+                'must': [{
                     'match': {
                         k: {'query': v, 'operator': 'and'},
                     }
-                } for k, v in fields.items()])
+                } for k, v in fields.items()]
             }
         }
 
+    @overload
     @classmethod
     async def search_by_fields(cls: Type[TModel],
-                               fields: Dict[str, Union[str, int, float]],
+                               fields: Mapping[str, ESValue],
                                *,
                                page_size: Optional[int] = None,
                                page: Optional[int] = None,
-                               sort: Optional[Union[list, str]] = None,
+                               sort: Optional[Union[List[Any], str]] = None,
                                routing: Optional[str] = None,
-                               aggs: Optional[ESAggs] = None,
+                               aggs: Optional[Mapping[str, ESAgg]] = None,
+                               res_dict: Literal[False] = False,
+                               index: Optional[str] = None,
+                               _source: Optional[Union[str, List[str]]] = None,
+                               **kwargs: Any) -> List[TModel]: ...
+
+    @overload
+    @classmethod
+    async def search_by_fields(cls: Type[TModel],
+                               fields: Mapping[str, ESValue],
+                               *,
+                               page_size: Optional[int] = None,
+                               page: Optional[int] = None,
+                               sort: Optional[Union[List[Any], str]] = None,
+                               routing: Optional[str] = None,
+                               aggs: Optional[Mapping[str, ESAgg]] = None,
+                               res_dict: Literal[True],
+                               index: Optional[str] = None,
+                               _source: Optional[Union[str, List[str]]] = None,
+                               **kwargs: Any) -> Dict[str, TModel]: ...
+
+    @overload
+    @classmethod
+    async def search_by_fields(cls: Type[TModel],
+                               fields: Mapping[str, ESValue],
+                               *,
+                               page_size: Optional[int] = None,
+                               page: Optional[int] = None,
+                               sort: Optional[Union[List[Any], str]] = None,
+                               routing: Optional[str] = None,
+                               aggs: Optional[Mapping[str, ESAgg]] = None,
+                               res_dict: bool,
+                               index: Optional[str] = None,
+                               _source: Optional[Union[str, List[str]]] = None,
+                               **kwargs: Any) -> Union[List[TModel], Dict[str, TModel]]: ...
+
+    @classmethod
+    async def search_by_fields(cls: Type[TModel],
+                               fields: Mapping[str, ESValue],
+                               *,
+                               page_size: Optional[int] = None,
+                               page: Optional[int] = None,
+                               sort: Optional[Union[List[Any], str]] = None,
+                               routing: Optional[str] = None,
+                               aggs: Optional[Mapping[str, ESAgg]] = None,
                                res_dict: bool = False,
                                index: Optional[str] = None,
                                _source: Optional[Union[str, List[str]]] = None,
-                               **kwargs) -> List[TModel]:
+                               **kwargs: Any) -> Union[List[TModel], Dict[str, TModel]]:
         """
         Search Model by fields as key-value pairs
 
@@ -787,7 +852,7 @@ class ESModel(ESBaseModel):
         :param index: Index name, if not set, it will use the index from ESConfig
         :param _source: Fields to return, if not set, it will return all fields
         :param kwargs: Other search API params
-        :return: The result list
+        :return: The result list, or a dict of id - model pairs if `res_dict` is True
         """
         query = cls.create_query_from_dict(fields)
         return await cls.search(query, page_size=page_size, page=page, sort=sort, routing=routing,
@@ -795,12 +860,12 @@ class ESModel(ESBaseModel):
 
     @classmethod
     async def search_one_by_fields(cls: Type[TModel],
-                                   fields: Dict[str, Union[str, int, float]],
+                                   fields: Mapping[str, ESValue],
                                    *, routing: Optional[str] = None,
-                                   aggs: Optional[ESAggs] = None,
+                                   aggs: Optional[Mapping[str, ESAgg]] = None,
                                    index: Optional[str] = None,
                                    _source: Optional[Union[str, List[str]]] = None,
-                                   **kwargs) -> Optional[TModel]:
+                                   **kwargs: Any) -> Optional[TModel]:
         """
         Search Model by fields as key-value pairs and return the first result
 
@@ -816,7 +881,7 @@ class ESModel(ESBaseModel):
         return await cls.search_one(query, routing=routing, aggs=aggs, index=index, _source=_source, **kwargs)
 
     @classmethod
-    async def all(cls: Type[TModel], index: Optional[str] = None, **kwargs) -> List[TModel]:
+    async def all(cls: Type[TModel], index: Optional[str] = None, **kwargs: Any) -> List[TModel]:
         """
         Get all documents
 
@@ -826,140 +891,158 @@ class ESModel(ESBaseModel):
         """
         return await cls.search({'match_all': {}}, index=index, **kwargs)
 
-    @classmethod
-    async def scan_batches(cls: Type[TModel],
-                           query: Optional[ESQuery] = None,
-                           *,
-                           batch_size: int = 1000,
-                           sort: Optional[Union[list, str]] = None,
-                           keep_alive: str = '1m',
-                           routing: Optional[str] = None,
-                           index: Optional[str] = None,
-                           _source: Optional[Union[str, List[str]]] = None,
-                           **kwargs) -> AsyncIterator[List[TModel]]:
-        """
-        Iterate through all results of a query in batches
+    if TYPE_CHECKING:
+        scan_batches: ClassVar['ScanBatchesMethod']
+    else:
+        @classmethod
+        async def scan_batches(cls: Type[TModel],
+                               query: Optional[ESQuery] = None,
+                               *,
+                               batch_size: int = 1000,
+                               sort: Optional[Union[List[Any], str]] = None,
+                               keep_alive: str = '1m',
+                               routing: Optional[str] = None,
+                               index: Optional[str] = None,
+                               _source: Optional[Union[str, List[str]]] = None,
+                               **kwargs: Any) -> AsyncGenerator[List[TModel], None]:
+            """
+            Iterate through all results of a query in batches
 
-        It uses a point in time (PIT) with `search_after`, so any number of documents can be iterated through
-        efficiently, and the results are consistent: changes made during the iteration are not visible.
-        A unique tiebreaker (`_shard_doc`, or `_id` on OpenSearch 2.x) is added to the sort, so no document is
-        lost or duplicated, even if the sort field is not unique.
+            It uses a point in time (PIT) with `search_after`, so any number of documents can be iterated through
+            efficiently, and the results are consistent: changes made during the iteration are not visible.
+            A unique tiebreaker (`_shard_doc`, or `_id` on OpenSearch 2.x) is added to the sort, so no document is
+            lost or duplicated, even if the sort field is not unique.
 
-        The point in time is closed when the iteration ends. If the iteration may be stopped early (e.g. by
-        `break`), use `contextlib.aclosing()` to close it immediately, not only when the iterator is garbage
-        collected.
+            The point in time is closed when the iteration ends. If the iteration may be stopped early (e.g. by
+            `break`), use `contextlib.aclosing()` to close it immediately, not only when the iterator is garbage
+            collected.
 
-        Example::
+            Example::
 
-            async for users in User.scan_batches({'range': {'age': {'gte': 18}}}, batch_size=500):
-                async with ESBulk() as bulk:
-                    for user in users:
-                        user.adult = True
-                        await bulk.save(user)
+                async for users in User.scan_batches({'range': {'age': {'gte': 18}}}, batch_size=500):
+                    async with ESBulk() as bulk:
+                        for user in users:
+                            user.adult = True
+                            await bulk.save(user)
 
-        :param query: ElasticSearch query dict, if not set, all documents are returned
-        :param batch_size: The number of documents to fetch in one request
-        :param sort: Name of field to be sorted, or sort term list of dict, if not specified, model's default sort
-                     will be used, or the index order, which is the most efficient
-        :param keep_alive: How long the point in time is kept alive between two requests, increase it if
-                           processing a batch takes longer
-        :param routing: Shard routing value
-        :param index: Index name, if not set, it will use the index from ESConfig
-        :param _source: Fields to return, if not set, it will return all fields
-        :param kwargs: Other search API params
-        :return: Async iterator of result lists, each list has maximum `batch_size` models
-        """
-        if isinstance(sort, str):
-            sort = [{sort: {'order': 'asc'}}]
-        elif sort is None:
-            sort = cls.ESConfig.default_sort or []
-        # A unique tiebreaker is needed for search_after, OpenSearch doesn't add it automatically
-        if not any(_sort_field(s) == '_shard_doc' for s in sort):
-            sort = [*sort, {'_shard_doc': {'order': 'asc'}}]
-        if 'request_timeout' not in kwargs:
-            kwargs['request_timeout'] = 60
+            :param query: ElasticSearch query dict, if not set, all documents are returned
+            :param batch_size: The number of documents to fetch in one request
+            :param sort: Name of field to be sorted, or sort term list of dict, if not specified, model's default sort
+                         will be used, or the index order, which is the most efficient
+            :param keep_alive: How long the point in time is kept alive between two requests, increase it if
+                               processing a batch takes longer
+            :param routing: Shard routing value
+            :param index: Index name, if not set, it will use the index from ESConfig
+            :param _source: Fields to return, if not set, it will return all fields
+            :param kwargs: Other search API params
+            :return: Async iterator of result lists, each list has maximum `batch_size` models
+            """
+            if isinstance(sort, str):
+                sort = [{sort: {'order': 'asc'}}]
+            elif sort is None:
+                sort = list(cls.ESConfig.default_sort or [])
+            # A unique tiebreaker is needed for search_after, OpenSearch doesn't add it automatically
+            if not any(_sort_field(s) == '_shard_doc' for s in sort):
+                sort = [*sort, {'_shard_doc': {'order': 'asc'}}]
+            if 'request_timeout' not in kwargs:
+                kwargs['request_timeout'] = 60
 
-        pit = await es.open_point_in_time(index=index or cls.ESConfig.index, keep_alive=keep_alive,
-                                          routing=routing, request_timeout=kwargs['request_timeout'])
-        pit_id = pit['id']
-        search_after = None
-        try:
-            while True:
-                try:
-                    # The index must not be set, it comes from the point in time
-                    res = await es.search(pit={'id': pit_id, 'keep_alive': keep_alive}, query=query,
-                                          size=batch_size, sort=sort, search_after=search_after,
-                                          track_total_hits=False, seq_no_primary_term=True, version=True,
-                                          _source=_source, **kwargs)
-                except elasticsearch.BadRequestError as e:
-                    # Older OpenSearch versions (2.x) don't support _shard_doc, _id is used instead
-                    if search_after is None and is_opensearch() and '_shard_doc' in str(e.body):
-                        sort = [({'_id': s['_shard_doc']} if isinstance(s, dict) else '_id')
-                                if _sort_field(s) == '_shard_doc' else s for s in sort]
-                        continue
-                    raise
-                # The id of the point in time may change between requests
-                pit_id = res.get('pit_id', pit_id)
-                hits = res['hits']['hits']
-                if not hits:
-                    break
-                yield await _lazy_process_results([cls.from_es(hit) for hit in hits])
-                search_after = hits[-1]['sort']
-        finally:
+            pit = await es.open_point_in_time(index=index or cls.ESConfig.index, keep_alive=keep_alive,
+                                              routing=routing, request_timeout=kwargs['request_timeout'])
+            pit_id = pit['id']
+            search_after = None
             try:
-                await es.close_point_in_time(id=pit_id, request_timeout=kwargs['request_timeout'])
-            except Exception as e:  # It expires after keep_alive anyway
-                logger.warning(f"Failed to close point in time: {e}")
-
-    @classmethod
-    async def scan(cls: Type[TModel],
-                   query: Optional[ESQuery] = None,
-                   *,
-                   batch_size: int = 1000,
-                   sort: Optional[Union[list, str]] = None,
-                   keep_alive: str = '1m',
-                   routing: Optional[str] = None,
-                   index: Optional[str] = None,
-                   _source: Optional[Union[str, List[str]]] = None,
-                   **kwargs) -> AsyncIterator[TModel]:
-        """
-        Iterate through all results of a query
-
-        It fetches the documents in batches, see :meth:`scan_batches` for details.
-
-        Example::
-
-            async for user in User.scan({'range': {'age': {'gte': 18}}}):
-                print(user.name)
-
-            # Close the point in time immediately if the iteration is stopped early
-            async with contextlib.aclosing(User.scan(sort='name')) as users:
-                async for user in users:
-                    if user.name == 'admin':
+                while True:
+                    try:
+                        # The index must not be set, it comes from the point in time
+                        res = await es.search(pit={'id': pit_id, 'keep_alive': keep_alive}, query=query,
+                                              size=batch_size, sort=sort, search_after=search_after,
+                                              track_total_hits=False, seq_no_primary_term=True, version=True,
+                                              _source=_source, **kwargs)
+                    except elasticsearch.BadRequestError as e:
+                        # Older OpenSearch versions (2.x) don't support _shard_doc, _id is used instead
+                        if search_after is None and is_opensearch() and '_shard_doc' in str(e.body):
+                            sort = [({'_id': s['_shard_doc']} if isinstance(s, dict) else '_id')
+                                    if _sort_field(s) == '_shard_doc' else s for s in sort]
+                            continue
+                        raise
+                    # The id of the point in time may change between requests
+                    pit_id = res.get('pit_id', pit_id)
+                    hits = res['hits']['hits']
+                    if not hits:
                         break
+                    yield await _lazy_process_results([cls.from_es(hit) for hit in hits])
+                    search_after = hits[-1]['sort']
+            finally:
+                try:
+                    await es.close_point_in_time(id=pit_id, request_timeout=kwargs['request_timeout'])
+                except Exception as e:  # It expires after keep_alive anyway
+                    logger.warning(f"Failed to close point in time: {e}")
 
-        :param query: ElasticSearch query dict, if not set, all documents are returned
-        :param batch_size: The number of documents to fetch in one request
-        :param sort: Name of field to be sorted, or sort term list of dict, if not specified, model's default sort
-                     will be used, or the index order, which is the most efficient
-        :param keep_alive: How long the point in time is kept alive between two requests, increase it if
-                           processing a batch takes longer
-        :param routing: Shard routing value
-        :param index: Index name, if not set, it will use the index from ESConfig
-        :param _source: Fields to return, if not set, it will return all fields
-        :param kwargs: Other search API params
-        :return: Async iterator of results
-        """
-        async with aclosing(cls.scan_batches(query, batch_size=batch_size, sort=sort, keep_alive=keep_alive,
-                                             routing=routing, index=index, _source=_source,
-                                             **kwargs)) as batches:
-            async for batch in batches:
-                for doc in batch:
-                    yield doc
+    if TYPE_CHECKING:
+        scan: ClassVar['ScanMethod']
+    else:
+        @classmethod
+        async def scan(cls: Type[TModel],
+                       query: Optional[ESQuery] = None,
+                       *,
+                       batch_size: int = 1000,
+                       sort: Optional[Union[List[Any], str]] = None,
+                       keep_alive: str = '1m',
+                       routing: Optional[str] = None,
+                       index: Optional[str] = None,
+                       _source: Optional[Union[str, List[str]]] = None,
+                       **kwargs: Any) -> AsyncGenerator[TModel, None]:
+            """
+            Iterate through all results of a query
+
+            It fetches the documents in batches, see :meth:`scan_batches` for details.
+
+            Example::
+
+                async for user in User.scan({'range': {'age': {'gte': 18}}}):
+                    print(user.name)
+
+                # Close the point in time immediately if the iteration is stopped early
+                async with contextlib.aclosing(User.scan(sort='name')) as users:
+                    async for user in users:
+                        if user.name == 'admin':
+                            break
+
+            :param query: ElasticSearch query dict, if not set, all documents are returned
+            :param batch_size: The number of documents to fetch in one request
+            :param sort: Name of field to be sorted, or sort term list of dict, if not specified, model's default sort
+                         will be used, or the index order, which is the most efficient
+            :param keep_alive: How long the point in time is kept alive between two requests, increase it if
+                               processing a batch takes longer
+            :param routing: Shard routing value
+            :param index: Index name, if not set, it will use the index from ESConfig
+            :param _source: Fields to return, if not set, it will return all fields
+            :param kwargs: Other search API params
+            :return: Async iterator of results
+            """
+            async with aclosing(cls.scan_batches(query, batch_size=batch_size, sort=sort, keep_alive=keep_alive,
+                                                 routing=routing, index=index, _source=_source,
+                                                 **kwargs)) as batches:
+                async for batch in batches:
+                    for doc in batch:
+                        yield doc
+
+    # PyCharm checks a dict literal argument only if the parameter is a TypedDict (not Optional), so it has its own
+    # overload
+    @overload
+    @classmethod
+    async def count(cls: Type[TModel], query: ESQuery,
+                    routing: Optional[str] = None, index: Optional[str] = None, **kwargs: Any) -> int: ...
+
+    @overload
+    @classmethod
+    async def count(cls: Type[TModel], query: Optional[ESQuery] = None,
+                    routing: Optional[str] = None, index: Optional[str] = None, **kwargs: Any) -> int: ...
 
     @classmethod
     async def count(cls: Type[TModel], query: Optional[ESQuery] = None,
-                    routing: Optional[str] = None, index: Optional[str] = None, **kwargs) -> int:
+                    routing: Optional[str] = None, index: Optional[str] = None, **kwargs: Any) -> int:
         """
         Count documents in the index
 
@@ -977,14 +1060,56 @@ class ESModel(ESBaseModel):
         except KeyError:
             raise InvalidResponseError("Invalid response from ElasticSearch")
 
+    # PyCharm checks dict literal arguments only if the parameters are TypedDicts (not Optional or a dict of
+    # TypedDicts), mypy doesn't support ESNamedAggs (PEP 728) yet, so there are overloads for all of them
+    @overload
     @classmethod
     async def aggregate(cls: Type[TModel],
-                        aggs: ESAggs,
+                        aggs: ESNamedAggs,
+                        *,
+                        query: ESQuery,
+                        routing: Optional[str] = None,
+                        index: Optional[str] = None,
+                        **kwargs: Any) -> ESAggsResponse: ...
+
+    @overload
+    @classmethod
+    async def aggregate(cls: Type[TModel],
+                        aggs: ESNamedAggs,
                         *,
                         query: Optional[ESQuery] = None,
                         routing: Optional[str] = None,
                         index: Optional[str] = None,
-                        **kwargs) -> ESAggsResponse:
+                        **kwargs: Any) -> ESAggsResponse: ...
+
+    @overload
+    @classmethod
+    async def aggregate(cls: Type[TModel],
+                        aggs: Mapping[str, ESAgg],
+                        *,
+                        query: ESQuery,
+                        routing: Optional[str] = None,
+                        index: Optional[str] = None,
+                        **kwargs: Any) -> ESAggsResponse: ...
+
+    @overload
+    @classmethod
+    async def aggregate(cls: Type[TModel],
+                        aggs: Mapping[str, ESAgg],
+                        *,
+                        query: Optional[ESQuery] = None,
+                        routing: Optional[str] = None,
+                        index: Optional[str] = None,
+                        **kwargs: Any) -> ESAggsResponse: ...
+
+    @classmethod
+    async def aggregate(cls: Type[TModel],
+                        aggs: Mapping[str, ESAgg],
+                        *,
+                        query: Optional[ESQuery] = None,
+                        routing: Optional[str] = None,
+                        index: Optional[str] = None,
+                        **kwargs: Any) -> ESAggsResponse:
         """
         Aggregate Model with aggregation dict
         Before aggregation the model can be filtered by query dict.
@@ -994,7 +1119,7 @@ class ESModel(ESBaseModel):
         :param routing: Shard routing value
         :param index: Index name, if not set, it will use the index from ESConfig
         :param kwargs: Other search API params
-        :return: The result list
+        :return: The aggregation results by aggregation names
         """
         try:
             res = await cls._search(query, aggs=aggs, routing=routing, page_size=0, index=index, **kwargs)
@@ -1007,7 +1132,8 @@ class ESModelTimestamp(ESModel):
     """
     Model which stores `created_at` and `modified_at` fields automatcally.
     """
-    created_at: Optional[datetime] = Field(None, description="Creation date and time")
+    # The default must be a keyword argument, otherwise type checkers think the field is required
+    created_at: Optional[datetime] = Field(default=None, description="Creation date and time")
     modified_at: Optional[datetime] = Field(default_factory=utcnow, description="Modification date and time")
 
     async def save(self, *, wait_for=False, refresh: Union[bool, Literal["wait_for"]] = False,
@@ -1122,7 +1248,7 @@ def lazy_property(func: Callable[..., Awaitable[Any]]):
             return None
 
     @wraps(func)
-    async def async_wrapper(self: ESBaseModel, *args, **kwargs):
+    async def async_wrapper(self: ESBaseModel, *args, **kwargs: Any):
         # Check recursion depth
         depth = _lazy_property_recursion_depth.get()
         if depth >= self.ESConfig.lazy_property_max_recursion_depth:
@@ -1158,7 +1284,7 @@ def retry_on_conflict(max_retries=-1, *, reload_on_conflict=True):
 
     def decorator(func: Callable):
         @wraps(func)
-        async def wrapper(*args, **kwargs):
+        async def wrapper(*args, **kwargs: Any):
             retries = 0
             while True:
                 try:
@@ -1213,11 +1339,11 @@ class Pagination(BaseModel):
 
             # noinspection PyProtectedMember
             @classmethod
-            async def _search(cls: model_cls, query: ESQuery, *,
+            async def _search(cls, query: ESQuery, *,
                               page_size: Optional[int] = None,
                               page: int = None,
-                              sort: Optional[Union[list, str]] = None,
-                              **kwargs) -> ESResponse:
+                              sort: Optional[Union[List[Any], str]] = None,
+                              **kwargs: Any) -> ESResponse:
                 page_size = self.page_size if page_size is None else page_size
                 page = self.page if page is None else page
                 res = await model_cls._search(query, page_size=page_size, page=page, sort=sort, **kwargs)
@@ -1257,7 +1383,12 @@ class Sort(BaseModel):
     """
     Sort parameters
     """
-    sort: Union[List[Dict[str, SortOrder]], str, None]
+    if TYPE_CHECKING:
+        # PyCharm can't check a TypedDict in a union parameter (it reports correct dict literals), pydantic still
+        # validates the runtime type below
+        sort: Union[List[Dict[str, Dict[str, Literal['asc', 'desc']]]], str, None]
+    else:
+        sort: Union[List[Dict[str, SortOrder]], str, None]
 
     def __call__(self, model_cls: Type[TModel]) -> Type[TModel]:
         """
@@ -1276,18 +1407,18 @@ class Sort(BaseModel):
 
             # noinspection PyProtectedMember
             @classmethod
-            async def _search(cls: model_cls, query: ESQuery, *,
+            async def _search(cls, query: ESQuery, *,
                               page_size: Optional[int] = None,
                               page: int = None,
-                              sort: Optional[Union[list, str]] = None,
-                              **kwargs) -> ESResponse:
+                              sort: Optional[Union[List[Any], str]] = None,
+                              **kwargs: Any) -> ESResponse:
                 sort = self.sort if sort is None else sort
                 return await model_cls._search(query, page_size=page_size, page=page, sort=sort, **kwargs)
 
             @classmethod
             def scan_batches(cls, query: Optional[ESQuery] = None, *,
-                             sort: Optional[Union[list, str]] = None,
-                             **kwargs) -> AsyncIterator[List[TModel]]:
+                             sort: Optional[Union[List[Any], str]] = None,
+                             **kwargs: Any) -> AsyncGenerator[List[TModel], None]:
                 sort = self.sort if sort is None else sort
                 return model_cls.scan_batches(query, sort=sort, **kwargs)
 

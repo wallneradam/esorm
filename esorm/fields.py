@@ -1,11 +1,12 @@
-from typing import Any, Optional, Union, List, Literal, Dict
+from typing import Any, Optional, Union, List, Literal, Dict, Sequence, TypeVar, overload
+from types import EllipsisType
+from decimal import Decimal
 from functools import cached_property
 
 from base64 import b64encode, b64decode
 
-# noinspection PyProtectedMember
-from pydantic.fields import Field as PField, FieldInfo
-from pydantic_core import core_schema
+from pydantic.fields import Field as PField
+from pydantic_core import core_schema, PydanticUndefined
 from pydantic import BaseModel
 
 __all__ = (
@@ -232,9 +233,23 @@ dense_vector = Union[DenseVector, List[float]]
 """Dense Vector type for vector similarity search"""
 
 
+#
+# Field functions
+#
+# The return type is Any or the type of the default (like pydantic.Field), not FieldInfo, so type checkers accept
+# `name: str = TextField(...)`. The ellipsis (`...`) or no default means the field is required.
+#
+
+_T = TypeVar('_T')
+_TNumber = TypeVar('_TNumber', bound=Union[int, float, Decimal, None])
+_TText = TypeVar('_TText', bound=Optional[str])
+_TVector = TypeVar('_TVector', bound=Optional[Sequence[float]])
+
+
 # noinspection PyPep8Naming
+@overload
 def Field(
-        default: Any,
+        default: EllipsisType = ...,
         *,
         # Elasticsearch args
         index: bool = True,
@@ -246,13 +261,50 @@ def Field(
         description: Optional[str] = None,
         exclude: Optional[bool] = None,
         frozen: bool = False,
-        **extra
-) -> FieldInfo:
+        **extra: Any
+) -> Any: ...
+
+
+# noinspection PyPep8Naming
+@overload
+def Field(
+        default: _T,
+        *,
+        # Elasticsearch args
+        index: bool = True,
+        fields: Optional[Dict[str, Dict[str, Any]]] = None,
+        # Pydantic args
+        alias: Optional[str] = None,
+        # Other pydantic args
+        title: Optional[str] = None,
+        description: Optional[str] = None,
+        exclude: Optional[bool] = None,
+        frozen: bool = False,
+        **extra: Any
+) -> _T: ...
+
+
+# noinspection PyPep8Naming
+def Field(
+        default: Any = PydanticUndefined,
+        *,
+        # Elasticsearch args
+        index: bool = True,
+        fields: Optional[Dict[str, Dict[str, Any]]] = None,
+        # Pydantic args
+        alias: Optional[str] = None,
+        # Other pydantic args
+        title: Optional[str] = None,
+        description: Optional[str] = None,
+        exclude: Optional[bool] = None,
+        frozen: bool = False,
+        **extra: Any
+) -> Any:
     """
     Basic Field Info
 
     :param default: since this is replacing the field's default, its first argument is used
-        to set the default, use ellipsis (``...``) to indicate the field is required
+        to set the default, use ellipsis (``...``) or leave it out to indicate the field is required
     :param index: if this field should be indexed or not
     :param fields: Elasticsearch subfields mapping (e.g. {'keyword': {'type': 'keyword'}})
     :param alias: the public name of the field
@@ -275,8 +327,9 @@ def Field(
 
 
 # noinspection PyPep8Naming
+@overload
 def NumericField(
-        default: Union[int, float],
+        default: EllipsisType = ...,
         *,
         # Elasticsearch args
         index: Optional[bool] = None,
@@ -296,13 +349,66 @@ def NumericField(
         description: Optional[str] = None,
         exclude: Optional[bool] = None,
         frozen: bool = False,
-        **extra
-) -> FieldInfo:
+        **extra: Any
+) -> Any: ...
+
+
+# noinspection PyPep8Naming
+@overload
+def NumericField(
+        default: _TNumber,
+        *,
+        # Elasticsearch args
+        index: Optional[bool] = None,
+        fields: Optional[Dict[str, Dict[str, Any]]] = None,
+        # Pydantic args
+        alias: Optional[str] = None,
+        gt: Optional[float] = None,
+        ge: Optional[float] = None,
+        lt: Optional[float] = None,
+        le: Optional[float] = None,
+        multiple_of: Optional[float] = None,
+        allow_inf_nan: Optional[bool] = None,
+        max_digits: Optional[int] = None,
+        decimal_places: Optional[int] = None,
+        # Other pydantic args
+        title: Optional[str] = None,
+        description: Optional[str] = None,
+        exclude: Optional[bool] = None,
+        frozen: bool = False,
+        **extra: Any
+) -> _TNumber: ...
+
+
+# noinspection PyPep8Naming
+def NumericField(
+        default: Any = PydanticUndefined,
+        *,
+        # Elasticsearch args
+        index: Optional[bool] = None,
+        fields: Optional[Dict[str, Dict[str, Any]]] = None,
+        # Pydantic args
+        alias: Optional[str] = None,
+        gt: Optional[float] = None,
+        ge: Optional[float] = None,
+        lt: Optional[float] = None,
+        le: Optional[float] = None,
+        multiple_of: Optional[float] = None,
+        allow_inf_nan: Optional[bool] = None,
+        max_digits: Optional[int] = None,
+        decimal_places: Optional[int] = None,
+        # Other pydantic args
+        title: Optional[str] = None,
+        description: Optional[str] = None,
+        exclude: Optional[bool] = None,
+        frozen: bool = False,
+        **extra: Any
+) -> Any:
     """
     Numeric Field Info
 
     :param default: since this is replacing the field's default, its first argument is used
-        to set the default, use ellipsis (``...``) to indicate the field is required
+        to set the default, use ellipsis (``...``) or leave it out to indicate the field is required
     :param index: if this field should be indexed or not
     :param fields: Elasticsearch subfields mapping (e.g. {'keyword': {'type': 'keyword'}})
     :param alias: the public name of the field
@@ -345,8 +451,9 @@ def NumericField(
 
 
 # noinspection PyPep8Naming
+@overload
 def TextField(
-        default: str,
+        default: EllipsisType = ...,
         *,
         # ESORM args
         index: bool = True,
@@ -362,13 +469,58 @@ def TextField(
         description: Optional[str] = None,
         exclude: Optional[bool] = None,
         frozen: bool = False,
-        **extra
-) -> FieldInfo:
+        **extra: Any
+) -> Any: ...
+
+
+# noinspection PyPep8Naming
+@overload
+def TextField(
+        default: _TText,
+        *,
+        # ESORM args
+        index: bool = True,
+        keyword: bool = False,
+        fields: Optional[Dict[str, Dict[str, Any]]] = None,
+        # Pydantic args
+        alias: Optional[str] = None,
+        min_length: Optional[int] = None,
+        max_length: Optional[int] = None,
+        pattern: Optional[str] = None,
+        # Other pydantic args
+        title: Optional[str] = None,
+        description: Optional[str] = None,
+        exclude: Optional[bool] = None,
+        frozen: bool = False,
+        **extra: Any
+) -> _TText: ...
+
+
+# noinspection PyPep8Naming
+def TextField(
+        default: Any = PydanticUndefined,
+        *,
+        # ESORM args
+        index: bool = True,
+        keyword: bool = False,
+        fields: Optional[Dict[str, Dict[str, Any]]] = None,
+        # Pydantic args
+        alias: Optional[str] = None,
+        min_length: Optional[int] = None,
+        max_length: Optional[int] = None,
+        pattern: Optional[str] = None,
+        # Other pydantic args
+        title: Optional[str] = None,
+        description: Optional[str] = None,
+        exclude: Optional[bool] = None,
+        frozen: bool = False,
+        **extra: Any
+) -> Any:
     """
     Text Field Info
 
     :param default: since this is replacing the field's default, its first argument is used
-        to set the default, use ellipsis (``...``) to indicate the field is required
+        to set the default, use ellipsis (``...``) or leave it out to indicate the field is required
     :param index: if this field should be indexed or not
     :param keyword: if True, adds a 'keyword' subfield for exact matching (shortcut)
     :param fields: Elasticsearch subfields mapping (keyword will be added to this if both are specified)
@@ -407,8 +559,9 @@ def TextField(
 
 
 # noinspection PyPep8Naming
+@overload
 def DenseVectorField(
-        default: Union[List[float], DenseVector],
+        default: EllipsisType = ...,
         *,
         # ESORM args
         index: bool = True,
@@ -421,13 +574,52 @@ def DenseVectorField(
         description: Optional[str] = None,
         exclude: Optional[bool] = None,
         frozen: bool = False,
-        **extra
-) -> FieldInfo:
+        **extra: Any
+) -> Any: ...
+
+
+# noinspection PyPep8Naming
+@overload
+def DenseVectorField(
+        default: _TVector,
+        *,
+        # ESORM args
+        index: bool = True,
+        dims: int,
+        similarity: Literal['cosine', 'dot_product', 'l2'] = 'cosine',
+        fields: Optional[Dict[str, Dict[str, Any]]] = None,
+        # Pydantic args
+        alias: Optional[str] = None,
+        title: Optional[str] = None,
+        description: Optional[str] = None,
+        exclude: Optional[bool] = None,
+        frozen: bool = False,
+        **extra: Any
+) -> _TVector: ...
+
+
+# noinspection PyPep8Naming
+def DenseVectorField(
+        default: Any = PydanticUndefined,
+        *,
+        # ESORM args
+        index: bool = True,
+        dims: int,
+        similarity: Literal['cosine', 'dot_product', 'l2'] = 'cosine',
+        fields: Optional[Dict[str, Dict[str, Any]]] = None,
+        # Pydantic args
+        alias: Optional[str] = None,
+        title: Optional[str] = None,
+        description: Optional[str] = None,
+        exclude: Optional[bool] = None,
+        frozen: bool = False,
+        **extra: Any
+) -> Any:
     """
     Dense Vector Field Info
 
     :param default: since this is replacing the field's default, its first argument is used
-        to set the default, use ellipsis (``...``) to indicate the field is required
+        to set the default, use ellipsis (``...``) or leave it out to indicate the field is required
     :param dims: dimensions for dense_vector fields, required
     :param similarity: similarity metric for dense_vector fields ('cosine', 'dot_product', 'l2')
     :param index: if this field should be indexed or not

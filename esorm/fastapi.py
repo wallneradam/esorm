@@ -1,7 +1,7 @@
 """
 FastaAPI utilities for ESORM
 """
-from typing import Union, List, Dict
+from typing import Union, List, Dict, Any, Callable, Awaitable
 
 import inspect
 import io
@@ -38,7 +38,8 @@ def set_max_page_size(max_page_size: int):
     _max_page_size = max_page_size
 
 
-def make_dep_pagination(default_page: int = 1, default_page_size: int = 10, set_headers: bool = True) -> callable:
+def make_dep_pagination(default_page: int = 1, default_page_size: int = 10,
+                        set_headers: bool = True) -> Callable[..., Awaitable[Pagination]]:
     """
     Create a pagination dependency with default values
 
@@ -76,7 +77,7 @@ def make_dep_pagination(default_page: int = 1, default_page_size: int = 10, set_
     return _dep_pagination
 
 
-def make_dep_sort(**kwargs: Union[List[Dict[str, dict]], Dict[str, any]]) -> callable:
+def make_dep_sort(**kwargs: Union[List[Dict[str, dict]], Dict[str, Any]]) -> Callable[..., Awaitable[Sort]]:
     """
     Create a sort dependency with sort definitions
 
@@ -102,7 +103,8 @@ def make_dep_sort(**kwargs: Union[List[Dict[str, dict]], Dict[str, any]]) -> cal
     sort_enum = Enum('SortEnum' + camel_case(fqdn.replace('.', '_'), True),
                      {k: k for k in kwargs.keys()})
 
-    async def _dep_sort(_sort: sort_enum = None) -> Sort:
+    # The annotation is a dynamically created enum, which is used by FastAPI at runtime
+    async def _dep_sort(_sort: sort_enum = None) -> Sort:  # type: ignore[valid-type]
         """
         Sort dependency
 
