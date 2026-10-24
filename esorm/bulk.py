@@ -1,12 +1,12 @@
 """
 Bulk operation for ElasticSearch
 """
-from typing import Union, Literal
+from typing import Any, Union, Literal
 
 from .error import BulkError, BulkOperationError
 from .utils import utcnow
 
-from .model import TModel, ESModelTimestamp
+from .model import ESModel, ESModelTimestamp
 from .esorm import es
 
 
@@ -15,7 +15,7 @@ class ESBulk:
     Bulk operation for ElasticSearch
     """
 
-    def __init__(self, wait_for=False, refresh: Union[bool, Literal["wait_for"]] = False, **bulk_kwargs):
+    def __init__(self, wait_for=False, refresh: Union[bool, Literal["wait_for"]] = False, **bulk_kwargs: Any):
         """
         Create a bulk context manager
 
@@ -74,7 +74,7 @@ class ESBulk:
         return False
 
     # noinspection PyProtectedMember
-    async def save(self, model: TModel):
+    async def save(self, model: ESModel):
         """
         Add the model to the bulk for saving
 
@@ -119,7 +119,7 @@ class ESBulk:
         self._actions.append({'index': index})
         self._actions.append(document)
 
-    async def delete(self, model: TModel):
+    async def delete(self, model: ESModel):
         """
         Add the model to the bulk for deletion
 

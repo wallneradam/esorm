@@ -641,11 +641,11 @@ class TestBaseTests:
         # Search
         query: 'ESQuery' = {
             'bool': {
-                'must': {
+                'must': [{
                     'match': {
                         'f_nested.f_str': 'nested_test2'
                     }
-                }
+                }]
             }
         }
         docs = await model_nested.search(query)
@@ -660,11 +660,11 @@ class TestBaseTests:
         # Search all started with nested_test
         query: 'ESQuery' = {
             'bool': {
-                'must': {
+                'must': [{
                     'prefix': {
                         'f_nested.f_str': 'nested_test'
                     }
-                }
+                }]
             }
         }
         docs = await model_nested.search(query)
@@ -682,11 +682,11 @@ class TestBaseTests:
         # Search one
         query: 'ESQuery' = {
             'bool': {
-                'must': {
+                'must': [{
                     'match': {
                         'f_nested.f_str': 'nested_test2'
                     }
-                }
+                }]
             }
         }
         doc = await model_nested.search_one(query)
@@ -696,11 +696,11 @@ class TestBaseTests:
         # Search one with multiple results
         query: 'ESQuery' = {
             'bool': {
-                'must': {
+                'must': [{
                     'prefix': {
                         'f_nested.f_str': 'nested_test'
                     }
-                }
+                }]
             }
         }
         doc = await model_nested.search_one(query)
@@ -764,11 +764,11 @@ class TestBaseTests:
         # Test aggregations with query
         query: 'ESQuery' = {
             'bool': {
-                'must': {
+                'must': [{
                     'match': {
                         'f_nested.f_str': 'nested_test2'
                     }
-                }
+                }]
             }
         }
         aggs: 'ESAggsResponse' = await model_nested.aggregate(aggs_def, query=query)
@@ -891,11 +891,11 @@ class TestBaseTests:
         assert doc_id is not None
         query = {
             'bool': {
-                'must': {
+                'must': [{
                     'match': {
                         'f_str': 'test1'
                     }
-                }
+                }]
             }
         }
         doc = await model_config.search_one(query)
@@ -908,11 +908,11 @@ class TestBaseTests:
         assert doc_id is not None
         query = {
             'bool': {
-                'must': {
+                'must': [{
                     'match': {
                         'f_str': 'test2'
                     }
-                }
+                }]
             }
         }
         docs = await model_config.search(query)
@@ -933,11 +933,11 @@ class TestBaseTests:
         assert doc_id is not None
         query = {
             'bool': {
-                'must': {
+                'must': [{
                     'match': {
                         'f_str': 'test3'
                     }
-                }
+                }]
             }
         }
         doc = await model_config.search_one(query)

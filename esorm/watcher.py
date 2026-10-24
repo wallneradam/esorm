@@ -1,7 +1,7 @@
 """
 ElasticSearch Watcher support for ESORM
 """
-from typing import TypedDict, Tuple, Dict, List, Any, Union, Type, Optional, cast
+from typing import TypedDict, Tuple, Dict, List, Any, Union, Type, Optional, TYPE_CHECKING, cast
 
 import json
 
@@ -177,8 +177,12 @@ class DeleteWatcher(Watcher):
 
     _index: Optional[str] = None
     """ Target index """
-    _query: Optional[ESQuery] = None
-    """ Query to match documents to delete """
+    if TYPE_CHECKING:
+        # It must be set in subclasses, so for type checkers it is not optional
+        _query: ESQuery
+        """ Query to match documents to delete """
+    else:
+        _query = None
 
     def __init__(self):
         super().__init__()
