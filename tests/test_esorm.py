@@ -516,6 +516,18 @@ class TestBaseTests:
         assert loaded.f_union_time is None
         assert loaded.f_nested.f_optional_time is None
 
+        # reload() converts the time fields, and updates the fields not set explicitly too
+        local = TimeFieldsModel(f_nested=TimeSubModel(f_time=time(12)))
+        doc_id = await local.save(refresh=True)
+        other = await TimeFieldsModel.get(doc_id)
+        other.f_optional_time = time(9)
+        other.f_nested.f_optional_time = time(10)
+        await other.save(refresh=True)
+        await local.reload()
+        assert local.f_optional_time == time(9)
+        assert isinstance(local.f_nested, TimeSubModel)
+        assert local.f_nested.f_optional_time == time(10)
+
     async def test_race_condition(self, es, esorm, model_nested):
         """
         Test race condition

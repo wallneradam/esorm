@@ -565,11 +565,14 @@ class ESModel(ESBaseModel):
         if not source or not _id:
             raise InvalidResponseError
 
-        for k, v in source.items():
-            if k in self.__pydantic_fields_set__:
-                setattr(self, k, v)
-
+        # Convert before setting the fields, because they are validated on assignment
         self._recursive_convert_from_es(source)
+
+        fields = type(self).model_fields
+        for k, v in source.items():
+            # Not only the explicitly set fields, the ones with default value may be changed in ES too
+            if k in fields:
+                setattr(self, k, v)
 
         # Set routing field
         _routing = data.get("_routing", None)

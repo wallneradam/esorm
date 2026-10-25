@@ -245,3 +245,42 @@ class TestNestedTimestamps:
         source = model(f_nested=nested_model(f_str='a', created_at=old, modified_at=old)).to_es()
         assert source['f_nested']['created_at'] == '2024-01-01T12:00:00Z'
         assert source['f_nested']['modified_at'] > '2024-01-01T12:00:00Z'
+
+
+class TestUpdateFromES:
+    """
+    Updating an existing model from ElasticSearch data (used by reload())
+    """
+
+    def test_update_from_es(self, models_time_fields):
+        sub_model, model = models_time_fields
+        doc = model(f_union_time=time(1))
+        doc.update_from_es({'_id': '1', '_version': 2, '_source': {
+            # Fields which were not set explicitly are updated too
+            'f_optional_time': '1970-01-01T10:00:00Z',
+            'f_list_time': ['1970-01-01T12:00:00Z'],
+            'f_nested': {'f_time': '1970-01-01T14:00:00Z'},
+            'f_nested_list': [{'f_time': '1970-01-01T16:00:00Z', 'f_optional_time': '1970-01-01T17:00:00Z'}],
+            # Unknown fields are ignored
+            'f_unknown': 'x',
+        }})
+        assert doc.f_optional_time == time(10)
+        # Fields missing from the source are kept
+        assert doc.f_union_time == time(1)
+        assert doc.f_list_time == [time(12)]
+        assert isinstance(doc.f_nested, sub_model)
+        assert doc.f_nested.f_time == time(14)
+        assert doc.f_nested_list == [sub_model(f_time=time(16), f_optional_time=time(17))]
+        assert doc._version == 2
+        assert not hasattr(doc, 'f_unknown')
+
+    def test_update_from_es_datetime(self, model_datetime):
+        doc = model_datetime(f_datetime=datetime(2020, 1, 1), f_date=date(2020, 1, 1), f_time=time(1))
+        doc.update_from_es({'_id': '1', '_source': {
+            'f_datetime': '2024-01-01T12:00:00Z',
+            'f_date': '2024-01-01',
+            'f_time': '1970-01-01T12:00:00Z',
+        }})
+        assert doc.f_datetime == datetime(2024, 1, 1, 12, tzinfo=timezone.utc)
+        assert doc.f_date == date(2024, 1, 1)
+        assert doc.f_time == time(12)
