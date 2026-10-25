@@ -7,6 +7,7 @@
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
 import os
+import re
 import sys
 
 import tomllib
@@ -27,7 +28,7 @@ with open(os.path.join(os.path.dirname(__file__), '..', 'pyproject.toml'), 'rb')
     pyproject = tomllib.load(f)
 
 # Generate changelog
-changelog = generate_changelog('wallneradam/esorm')
+generate_changelog('wallneradam/esorm', os.path.join(os.path.dirname(__file__), 'changelog.md'))
 
 version = pyproject['project']['version']
 release = pyproject['project']['version']
@@ -52,7 +53,39 @@ html_css_files = [
 html_logo = '_static/img/esorm.svg'
 html_favicon = '_static/img/favicon.ico'
 
-source_suffix = ['.rst']
+source_suffix = {
+    '.rst': 'restructuredtext',
+    '.md': 'markdown',
+}
+# These are included by introduction.md, advanced_usage.md and query_builder_usage.md
+exclude_patterns += ['README.md', 'advanced.md', 'query_builder.md']
 
 # user starts in light mode
 default_dark_mode = False
+
+# pdflatex stops at the emojis of the headings, xelatex just leaves them out (they are not in the font)
+latex_engine = 'xelatex'
+# Sphinx would use xindy with xelatex, makeindex is enough
+latex_use_xindy = False
+
+
+# -- Markdown preprocessing --------------------------------------------------
+# The Markdown files are written for GitHub: the link targets are HTML anchors (<a id="..."></a>), and
+# the README links to the files in docs/. Sphinx knows neither, so when the files are included, the
+# anchors are converted to MyST targets, and the links between the files to target links, which MyST
+# resolves across the documents. The badges are left out, the PDF can't show SVG images.
+
+_HTML_ANCHOR = re.compile(r'^<a id="([^"]+)"></a>[ \t]*$', re.MULTILINE)
+_FILE_LINK = re.compile(r'\]\((?:docs/|\.\./)?(?:README|advanced|query_builder)\.md(#[^)\s]+)\)')
+_BADGE = re.compile(r'^\[!\[[^\]]*\]\([^)]*\)\]\([^)]*\)[ \t]*\n', re.MULTILINE)
+
+
+def _prepare_markdown(_app, relative_path, _parent_docname, content):
+    if relative_path.suffix == '.md':
+        text = _HTML_ANCHOR.sub(r'(\1)=', content[0])
+        text = _FILE_LINK.sub(r'](\1)', text)
+        content[0] = _BADGE.sub('', text)
+
+
+def setup(app):
+    app.connect('include-read', _prepare_markdown)

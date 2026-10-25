@@ -13,7 +13,7 @@ img.logo {
     display: none;
 }
 
-.toctree-l2 a[href="#table-of-contents"] {
+.toctree-l2 a[href$="#table-of-contents"] {
     display: none;
 }
 
