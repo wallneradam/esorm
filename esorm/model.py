@@ -32,7 +32,7 @@ from uuid import UUID
 from pathlib import Path
 from ipaddress import IPv4Address, IPv6Address
 
-from .utils import snake_case, utcnow
+from .utils import snake_case, utcnow, datetime_to_es, time_to_es, time_from_es
 from .aggs import ESAgg, ESNamedAggs, ESAggsResponse
 
 from .error import InvalidResponseError, NotFoundError, ConflictError as ESORMConflictError
@@ -371,7 +371,7 @@ class ESModel(ESBaseModel):
                     v = utcnow()
                 elif _level != 0 and k == 'created_at' and v is None:
                     v = utcnow()
-                data[k] = v.replace(tzinfo=None).isoformat() + 'Z'
+                data[k] = datetime_to_es(v)
 
             # Convert date fields
             elif isinstance(v, date):
@@ -379,7 +379,7 @@ class ESModel(ESBaseModel):
 
             # Convert time fields
             elif isinstance(v, time):
-                data[k] = datetime.combine(datetime(1970, 1, 1), v).isoformat()
+                data[k] = time_to_es(v)
 
             # Convert UUID, Path, Url fields
             elif isinstance(v, UUID) or isinstance(v, Path) or isinstance(v, Url):
@@ -448,7 +448,7 @@ class ESModel(ESBaseModel):
                 field = cls.model_fields[k]
                 # Convert time fields
                 if field.annotation == time and isinstance(v, str):
-                    data[k] = datetime.fromisoformat(v).time()
+                    data[k] = time_from_es(v)
 
                 # Dict fields
                 elif isinstance(v, dict):

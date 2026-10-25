@@ -396,6 +396,73 @@ class TestBaseTests:
         assert str(doc.f_file_path) == '/bin/sh'
         assert str(doc.f_http_url) == 'http://example.com/'
 
+    async def test_timezones(self, es, esorm):
+        """
+        Test saving and loading naive, aware UTC and aware non-UTC datetimes and times
+        """
+        from datetime import datetime, time, timezone, timedelta
+        from esorm.builder import Range
+
+        utc = timezone.utc
+        cest = timezone(timedelta(hours=2))
+
+        class TimezoneModel(esorm.ESModel):
+            f_name: str
+            f_datetime: datetime
+            f_time: time
+
+        class TimezoneTimestampModel(esorm.ESModelTimestamp):
+            f_str: str
+
+        await esorm.setup_mappings()
+
+        # All of them are 2024-01-01 12:00 UTC (and 12:00 UTC time)
+        values = {
+            'naive': (datetime(2024, 1, 1, 12), time(12)),
+            'utc': (datetime(2024, 1, 1, 12, tzinfo=utc), time(12, tzinfo=utc)),
+            'cest': (datetime(2024, 1, 1, 14, tzinfo=cest), time(14, tzinfo=cest)),
+        }
+        ids = {}
+        for name, (f_datetime, f_time) in values.items():
+            ids[name] = await TimezoneModel(f_name=name, f_datetime=f_datetime, f_time=f_time).save(refresh=True)
+
+        for name, doc_id in ids.items():
+            # Stored as UTC
+            res = await TimezoneModel.call('get', id=doc_id)
+            assert res['_source']['f_datetime'] == '2024-01-01T12:00:00Z', name
+            assert res['_source']['f_time'] == '1970-01-01T12:00:00Z', name
+
+            # Loaded back as aware UTC datetime and naive UTC time
+            doc = await TimezoneModel.get(doc_id)
+            assert doc.f_datetime == datetime(2024, 1, 1, 12, tzinfo=utc), name
+            assert doc.f_datetime.utcoffset() == timedelta(0), name
+            assert doc.f_time == time(12), name
+            assert doc.f_time.tzinfo is None, name
+
+        # Queries find all of them by the same instant, whatever timezone it is given in
+        for instant in (datetime(2024, 1, 1, 12), datetime(2024, 1, 1, 12, tzinfo=utc),
+                        datetime(2024, 1, 1, 14, tzinfo=cest)):
+            docs = await TimezoneModel.search(Range('f_datetime', gte=instant, lte=instant))
+            assert sorted(doc.f_name for doc in docs) == ['cest', 'naive', 'utc'], instant
+
+        # Timestamps of ESModelTimestamp are stored in the same format by save() and by bulk save
+        doc_id = await TimezoneTimestampModel(f_str='save').save(refresh=True)
+        async with esorm.ESBulk(refresh=True) as bulk:
+            await bulk.save(TimezoneTimestampModel(f_str='bulk'))
+        bulk_doc = await TimezoneTimestampModel.search_one_by_fields({'f_str': 'bulk'})
+        assert bulk_doc is not None
+
+        for doc_id in (doc_id, bulk_doc.__id__):
+            res = await TimezoneTimestampModel.call('get', id=doc_id)
+            source = res['_source']
+            assert source['modified_at'].endswith('Z')
+            assert '+' not in source['modified_at']
+            assert source['created_at'] == source['modified_at']
+            doc = await TimezoneTimestampModel.get(doc_id)
+            assert doc.modified_at.utcoffset() == timedelta(0)
+            # Loaded timestamps can be compared to the current UTC time
+            assert doc.modified_at <= esorm.utils.utcnow()
+
     async def test_race_condition(self, es, esorm, model_nested):
         """
         Test race condition
