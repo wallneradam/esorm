@@ -343,6 +343,8 @@ class TestBaseTests:
         modified_at = doc.f_nested.modified_at
         created_at = doc.f_nested.created_at
         assert doc is not None
+        # Nested created_at is set on creation
+        assert created_at is not None
         doc.f_nested.f_str = "nested_test_updated"
         await doc.save()
 
@@ -462,6 +464,57 @@ class TestBaseTests:
             assert doc.modified_at.utcoffset() == timedelta(0)
             # Loaded timestamps can be compared to the current UTC time
             assert doc.modified_at <= esorm.utils.utcnow()
+
+    async def test_time_fields(self, es, esorm):
+        """
+        Test saving and loading optional, list and nested time fields
+        """
+        from datetime import time, timezone, timedelta
+        from typing import Optional, List
+
+        cest = timezone(timedelta(hours=2))
+
+        class TimeSubModel(esorm.ESBaseModel):
+            f_time: time
+            f_optional_time: Optional[time] = None
+
+        class TimeFieldsModel(esorm.ESModel):
+            f_optional_time: Optional[time] = None
+            f_union_time: time | None = None
+            f_list_time: List[time] = []
+            f_nested: Optional[TimeSubModel] = None
+            f_nested_list: List[TimeSubModel] = []
+
+        await esorm.setup_mappings()
+
+        doc = TimeFieldsModel(
+            f_optional_time=time(10, tzinfo=cest),
+            f_union_time=time(11),
+            f_list_time=[time(12), time(13)],
+            f_nested=TimeSubModel(f_time=time(14), f_optional_time=time(15)),
+            f_nested_list=[TimeSubModel(f_time=time(16)), TimeSubModel(f_time=time(17), f_optional_time=time(18))],
+        )
+        doc_id = await doc.save(refresh=True)
+
+        res = await TimeFieldsModel.call('get', id=doc_id)
+        assert res['_source']['f_optional_time'] == '1970-01-01T08:00:00Z'
+        assert res['_source']['f_nested_list'][1]['f_optional_time'] == '1970-01-01T18:00:00Z'
+
+        for loaded in (await TimeFieldsModel.get(doc_id),
+                       await TimeFieldsModel.search_one_by_fields({'_id': doc_id})):
+            assert loaded is not None
+            assert loaded.f_optional_time == time(8)
+            assert loaded.f_union_time == time(11)
+            assert loaded.f_list_time == [time(12), time(13)]
+            assert loaded.f_nested == doc.f_nested
+            assert loaded.f_nested_list == doc.f_nested_list
+
+        # None values stay None
+        doc_id = await TimeFieldsModel(f_nested=TimeSubModel(f_time=time(12))).save(refresh=True)
+        loaded = await TimeFieldsModel.get(doc_id)
+        assert loaded.f_optional_time is None
+        assert loaded.f_union_time is None
+        assert loaded.f_nested.f_optional_time is None
 
     async def test_race_condition(self, es, esorm, model_nested):
         """

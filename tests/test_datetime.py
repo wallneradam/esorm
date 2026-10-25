@@ -2,6 +2,7 @@
 Tests of the timezone handling of datetime and time fields, they don't need ElasticSearch
 """
 from datetime import datetime, date, time, timezone, timedelta
+from typing import Optional, List
 
 import pytest
 
@@ -100,3 +101,147 @@ class TestDatetimeToES:
         assert doc.f_time == time(12)
         assert doc.f_time.tzinfo is None
         assert doc.f_date == date(2024, 1, 1)
+
+
+@pytest.fixture(scope="module")
+def models_time_fields():
+    """
+    Models with optional, list and nested time fields, removed from the registered models after the tests
+    """
+
+    class TimeSubModel(esorm.ESBaseModel):
+        f_time: time
+        f_optional_time: Optional[time] = None
+
+    class TimeFieldsModel(esorm.ESModel):
+        f_optional_time: Optional[time] = None
+        f_union_time: time | None = None
+        f_list_time: List[time] = []
+        f_nested: Optional[TimeSubModel] = None
+        f_nested_list: List[TimeSubModel] = []
+
+    yield TimeSubModel, TimeFieldsModel
+    # noinspection PyProtectedMember
+    esorm.model._ESModelMeta.__models__.clear()
+
+
+class TestTimeFieldsFromES:
+    """
+    Loading time fields that are optional, in lists or in nested models
+    """
+
+    def test_from_es(self, models_time_fields):
+        _, model = models_time_fields
+        doc = model.from_es({'_id': '1', '_source': {
+            'f_optional_time': '1970-01-01T10:00:00Z',
+            'f_union_time': '1970-01-01T11:00:00Z',
+            'f_list_time': ['1970-01-01T12:00:00Z', '1970-01-01T13:00:00+02:00'],
+            'f_nested': {'f_time': '1970-01-01T14:00:00Z', 'f_optional_time': '1970-01-01T15:00:00Z'},
+            'f_nested_list': [
+                {'f_time': '1970-01-01T16:00:00Z'},
+                {'f_time': '1970-01-01T17:00:00Z', 'f_optional_time': '1970-01-01T18:00:00Z'},
+            ],
+        }})
+        assert doc.f_optional_time == time(10)
+        assert doc.f_union_time == time(11)
+        assert doc.f_list_time == [time(12), time(11)]
+        assert doc.f_nested is not None
+        assert doc.f_nested.f_time == time(14)
+        assert doc.f_nested.f_optional_time == time(15)
+        assert [(n.f_time, n.f_optional_time) for n in doc.f_nested_list] == [
+            (time(16), None),
+            (time(17), time(18)),
+        ]
+
+    def test_from_es_none(self, models_time_fields):
+        """
+        None values of optional fields stay None
+        """
+        _, model = models_time_fields
+        doc = model.from_es({'_id': '1', '_source': {
+            'f_optional_time': None,
+            'f_nested': None,
+            'f_nested_list': [{'f_time': '1970-01-01T16:00:00Z', 'f_optional_time': None}],
+        }})
+        assert doc.f_optional_time is None
+        assert doc.f_union_time is None
+        assert doc.f_nested is None
+        assert doc.f_nested_list[0].f_optional_time is None
+
+    def test_to_es_and_back(self, models_time_fields):
+        sub_model, model = models_time_fields
+        doc = model(
+            f_optional_time=time(10, tzinfo=CEST),
+            f_union_time=time(11),
+            f_list_time=[time(12), time(13)],
+            f_nested=sub_model(f_time=time(14), f_optional_time=time(15)),
+            f_nested_list=[sub_model(f_time=time(16)), sub_model(f_time=time(17), f_optional_time=time(18))],
+        )
+        source = doc.to_es()
+        assert source == {
+            'f_optional_time': '1970-01-01T08:00:00Z',
+            'f_union_time': '1970-01-01T11:00:00Z',
+            'f_list_time': ['1970-01-01T12:00:00Z', '1970-01-01T13:00:00Z'],
+            'f_nested': {'f_time': '1970-01-01T14:00:00Z', 'f_optional_time': '1970-01-01T15:00:00Z'},
+            'f_nested_list': [
+                {'f_time': '1970-01-01T16:00:00Z', 'f_optional_time': None},
+                {'f_time': '1970-01-01T17:00:00Z', 'f_optional_time': '1970-01-01T18:00:00Z'},
+            ],
+        }
+
+        loaded = model.from_es({'_id': '1', '_source': source})
+        assert loaded.f_optional_time == time(8)
+        assert loaded.f_union_time == time(11)
+        assert loaded.f_list_time == [time(12), time(13)]
+        assert loaded.f_nested == doc.f_nested
+        assert loaded.f_nested_list == doc.f_nested_list
+
+
+@pytest.fixture(scope="module")
+def models_nested_timestamp():
+    """
+    Models with nested ESModelTimestamp, removed from the registered models after the tests
+    """
+
+    class NestedTimestampModel(esorm.ESModelTimestamp):
+        f_str: str
+
+    class NotTimestampModel(esorm.ESBaseModel):
+        created_at: Optional[datetime] = None
+
+    class ParentModel(esorm.ESModel):
+        f_nested: NestedTimestampModel
+        f_nested_list: List[NestedTimestampModel] = []
+        f_not_timestamp: NotTimestampModel = NotTimestampModel()
+
+    yield NestedTimestampModel, ParentModel
+    # noinspection PyProtectedMember
+    esorm.model._ESModelMeta.__models__.clear()
+
+
+class TestNestedTimestamps:
+    """
+    The created_at and modified_at fields of nested ESModelTimestamp models
+    """
+
+    def test_new_nested(self, models_nested_timestamp):
+        """
+        created_at of new nested models is set to modified_at
+        """
+        nested_model, model = models_nested_timestamp
+        source = model(f_nested=nested_model(f_str='a'), f_nested_list=[nested_model(f_str='b')]).to_es()
+        for nested in (source['f_nested'], source['f_nested_list'][0]):
+            assert nested['modified_at'].endswith('Z')
+            assert nested['created_at'] == nested['modified_at']
+        # Only ESModelTimestamp models are updated
+        assert source['f_not_timestamp']['created_at'] is None
+
+    def test_existing_nested(self, models_nested_timestamp):
+        """
+        created_at of existing nested models is kept, modified_at is updated
+        """
+        nested_model, model = models_nested_timestamp
+        old = datetime(2024, 1, 1, 12, tzinfo=timezone.utc)
+        source = model(f_nested=nested_model(f_str='a', created_at=old, modified_at=old)).to_es()
+        assert source['f_nested']['created_at'] == '2024-01-01T12:00:00Z'
+        assert source['f_nested']['modified_at'] > '2024-01-01T12:00:00Z'
