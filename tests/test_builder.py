@@ -318,6 +318,47 @@ class TestWithBlocks:
             t.join()
         assert results == {n: {'bool': {'must': [{'term': {'t': n}}]}} for n in (1, 2)}
 
+    async def test_child_task(self):
+        """ A task created in a block inherits the block, but its queries are not collected by it """
+        ready = asyncio.Event()
+
+        async def worker():
+            Term('loose', 1)
+            await ready.wait()
+            with Bool() as child:
+                Term('child', 1)
+            Term('loose', 2)
+            return child
+
+        with Bool() as parent:
+            Term('parent', 1)
+            task = asyncio.create_task(worker())
+            await asyncio.sleep(0)  # the worker starts while the block is active
+        ready.set()
+        child = await task
+        assert parent.to_query() == {'bool': {'must': [{'term': {'parent': 1}}]}}
+        assert child.to_query() == {'bool': {'must': [{'term': {'child': 1}}]}}
+
+    def test_child_thread(self):
+        """ Threads started in a block (even with the context copied) don't collect into it """
+        import contextvars
+        results = {}
+
+        def worker():
+            Term('loose', 1)
+            with Bool() as child:
+                Term('child', 1)
+            results['child'] = child.to_query()
+
+        with Bool() as parent:
+            Term('parent', 1)
+            ctx = contextvars.copy_context()
+            t = threading.Thread(target=ctx.run, args=(worker,))
+            t.start()
+            t.join()
+        assert parent.to_query() == {'bool': {'must': [{'term': {'parent': 1}}]}}
+        assert results['child'] == {'bool': {'must': [{'term': {'child': 1}}]}}
+
 
 class TestOperators:
     """
@@ -348,6 +389,19 @@ class TestOperators:
             {'bool': {'must': [{'term': {'a': 1}}], 'boost': 2.0}}, {'term': {'b': 2}}]}}
         f = Bool(must=[Term('a', 1)], filter=[Term('x', 1)])
         assert len((f & Term('b', 2)).must) == 2
+
+    def test_or_with_empty_bool(self):
+        """ An empty bool matches every document, so it can't be dropped from an or """
+        for q in (Bool() | Term('a', 1), Term('a', 1) | Bool()):
+            assert len(q.should) == 2
+        assert (Bool() | Term('a', 1)).to_query() == {'bool': {'should': [
+            {'bool': {}}, {'term': {'a': 1}}], 'minimum_should_match': 1}}
+        assert (Term('a', 1) | Bool()).to_query() == {'bool': {'should': [
+            {'term': {'a': 1}}, {'bool': {}}], 'minimum_should_match': 1}}
+        assert (Bool(minimum_should_match=1) | Term('a', 1)).to_query() == {'bool': {'should': [
+            {'bool': {'minimum_should_match': 1}}, {'term': {'a': 1}}], 'minimum_should_match': 1}}
+        # An empty bool in an and is a match all, dropping it doesn't change the meaning
+        assert (Bool() & Term('a', 1)).to_query() == {'bool': {'must': [{'term': {'a': 1}}]}}
 
     def test_operands_are_not_changed(self):
         a = Term('a', 1) & Term('b', 2)
@@ -389,6 +443,31 @@ class TestClauses:
         assert [type(c).__name__ for c in q.must] == ['Term', 'Term', 'Term', 'dict', 'Term']
         q.must.clear()
         assert q.to_query() == {'bool': {}}
+
+    def test_extend_from_active_clauses(self):
+        """ Moving the clauses of an active block doesn't skip any of them """
+        with Bool() as parent:
+            Term('a', 1)
+            Term('b', 2)
+            Term('c', 3)
+            child = Bool(filter=parent.must)
+        assert child.to_query() == {'bool': {'filter': [
+            {'term': {'a': 1}}, {'term': {'b': 2}}, {'term': {'c': 3}}]}}
+        assert parent.to_query() == {'bool': {'must': [child.to_query()]}}
+
+        other = Bool()
+        with Bool() as parent:
+            Term('a', 1)
+            Term('b', 2)
+            other.must.extend(parent.must)
+        assert len(other.must) == 2
+        assert not parent.must
+
+    def test_self_extend(self):
+        q = Bool(must=[Term('a', 1), Term('b', 2)])
+        q.must += q.must
+        q.must.extend(q.must)
+        assert len(q.must) == 8
 
     def test_assign(self):
         q = Bool(must=[Term('a', 1)])

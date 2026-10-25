@@ -24,9 +24,12 @@ The search methods of the models accept builder queries, and :meth:`Query.to_que
 
 See the Query Builder chapter of the documentation for details.
 """
-from typing import Any, Dict, Iterable, Iterator, List, Literal, Optional, Sequence, Type, Union, cast, overload
+from typing import (Any, Dict, Iterable, Iterator, List, Literal, Optional, Sequence, Tuple, Type, Union, cast,
+                    overload)
 from typing_extensions import Self, TypeAlias
 
+import asyncio
+import threading
 from contextvars import ContextVar, Token
 from types import TracebackType
 
@@ -77,7 +80,7 @@ class _Collector:
     """
 
     def __init__(self) -> None:
-        self._tokens: List[Token[Optional['_Collector']]] = []
+        self._blocks: List[Tuple['_Block', Token[Optional['_Block']]]] = []
 
     def _collect(self, query: 'Query') -> None:
         """ Add a query clause which was created inside the with block """
@@ -93,18 +96,54 @@ class _Collector:
 
     def _push(self) -> None:
         """ Start collecting """
-        self._tokens.append(_current.set(self))
+        block = _Block(self)
+        self._blocks.append((block, _current.set(block)))
 
     def _pop(self) -> None:
         """ Stop collecting, the collected clauses can't be moved anymore """
-        _current.reset(self._tokens.pop())
+        block, token = self._blocks.pop()
+        block.active = False
+        _current.reset(token)
         for query in self._collected():
             if query._collected_by is self:
                 query._collected_by = None
 
 
-# The collector of the innermost with block. It is a context variable, so threads and async tasks have their own.
-_current: ContextVar[Optional[_Collector]] = ContextVar('esorm_builder_collector', default=None)
+def _owner() -> Tuple[threading.Thread, Optional['asyncio.Task[Any]']]:
+    """ The thread and the async task the code runs in """
+    try:
+        task = asyncio.current_task()
+    except RuntimeError:  # No running event loop
+        task = None
+    return threading.current_thread(), task
+
+
+class _Block:
+    """
+    An entered with block of a collector
+
+    A new async task (or a thread started with a copied context) inherits the context variables, so it would see the
+    block of its parent. So the block remembers where it was entered, and collects only the queries created there,
+    and only while it is active.
+    """
+
+    def __init__(self, collector: _Collector) -> None:
+        self.collector = collector
+        self.owner = _owner()
+        self.active = True
+
+    def collector_for_owner(self) -> Optional[_Collector]:
+        """ The collector, if the block is active and the code runs where it was entered """
+        if not self.active:
+            return None
+        thread, task = _owner()
+        if thread is not self.owner[0] or task is not self.owner[1]:
+            return None
+        return self.collector
+
+
+# The innermost with block. It is a context variable, so threads and async tasks have their own.
+_current: ContextVar[Optional[_Block]] = ContextVar('esorm_builder_block', default=None)
 
 
 def _adopt(item: QueryLike) -> QueryLike:
@@ -168,7 +207,8 @@ class Query:
 
     def __init__(self) -> None:
         self._collected_by: Optional[_Collector] = None
-        collector = _current.get()
+        block = _current.get()
+        collector = block.collector_for_owner() if block is not None else None
         if collector is not None:
             collector._collect(self)
             self._collected_by = collector
@@ -270,7 +310,9 @@ class Clauses(_Collector):
 
         :param clauses: Queries or query dicts
         """
-        for clause in clauses:
+        # A copy, because moving a clause changes the clauses it is moved from (it can be this object or the clauses
+        # of an active with block)
+        for clause in list(clauses):
             self.append(clause)
 
     def clear(self) -> None:
@@ -541,7 +583,8 @@ def _must_parts(item: QueryLike) -> List[QueryLike]:
 def _should_parts(item: QueryLike) -> List[QueryLike]:
     """ The parts of a query for |: the clauses of a bool query which has only should clauses """
     _adopt(item)
-    if isinstance(item, Bool) and item._only('should'):
+    # An empty bool query matches every document, so it can't be left out
+    if isinstance(item, Bool) and item.should and item._only('should'):
         return list(item.should)
     return [item]
 

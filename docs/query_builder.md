@@ -367,7 +367,9 @@ The rules are simple, but it is worth knowing them exactly:
 
 7. **Threads and async tasks have their own blocks**: the current block is stored in a context variable, so queries
    built at the same time in different threads or async tasks don't mix, even if there is an `await` inside the
-   block.
+   block. A block collects only the clauses created in the thread and async task it was entered in: a task created
+   inside a block (e.g. by `asyncio.create_task()`) inherits the context variables, but its clauses are not added to
+   the block of its parent.
 
 8. **These are ordinary (synchronous) `with` blocks**, use `with`, not `async with`. Entering and leaving a block
    doesn't do anything with ElasticSearch.
@@ -408,7 +410,8 @@ q = (Term('tag', 'python') | Term('tag', 'es')) & ~Exists('deleted_at')
 ```
 
 Chains are flattened: `a & b & c` is one bool query with 3 must clauses, not nested bool queries. A bool query is
-flattened only if it has nothing else (no other clauses and no parameters), so the meaning never changes:
+flattened only if it has nothing else (no other clauses and no parameters), so the meaning never changes. An empty
+`Bool()` is not dropped from `|`, because it matches every document:
 
 ```python
 from esorm.builder import Term
