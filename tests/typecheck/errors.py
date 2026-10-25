@@ -4,7 +4,7 @@ Incorrect usage: type checkers must report every line marked with "# E", and not
 """
 from typing import List
 from esorm import ESModel, ESBaseModel
-from esorm.fields import TextField, NumericField, Field
+from esorm.fields import TextField, NumericField, Field, DenseVectorField, dense_vector
 from esorm.query import ESQuery
 from esorm.aggs import ESAggs
 
@@ -20,6 +20,7 @@ class User(ESModel):
     bad_text: int = TextField('x')  # E: str default for an int field
     bad_num: str = NumericField(1)  # E: int default for a str field
     bad_field: int = Field('x')  # E: str default for an int field
+    bad_vector: dense_vector = DenseVectorField(..., dims=3, similarity='l2')  # E: ElasticSearch calls it 'l2_norm'
 
 
 async def queries(name: str) -> None:
