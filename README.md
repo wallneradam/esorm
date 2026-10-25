@@ -1,4 +1,4 @@
-<img src="https://raw.githubusercontent.com/wallneradam/esorm/main/docs/_static/img/esorm.svg" width="110" height="110" align="left" style="margin-right: 1em; margin-bottom: 0.5em" alt="Logo"/>
+<img src="docs/_static/img/esorm.svg" width="110" height="110" align="left" style="margin-right: 1em; margin-bottom: 0.5em" alt="Logo"/>
 
 # ESORM - Python ElasticSearch and OpenSearch ORM based on Pydantic
 
