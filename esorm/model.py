@@ -128,12 +128,11 @@ def _description_from_docstring(model: Type[BaseModel]):
                 continue
 
             doc_node = node.value
-            if isinstance(doc_node, ast.Constant):  # 'regular' variable doc string
-                docstring = doc_node.value.strip()
-            else:
-                raise NotImplementedError(doc_node)
+            # Only string constants are docstrings, e.g. a bare `...` or a number is not
+            if not (isinstance(doc_node, ast.Constant) and isinstance(doc_node.value, str)):
+                continue
 
-            info.description = docstring
+            info.description = doc_node.value.strip()
 
         except KeyError:
             pass
