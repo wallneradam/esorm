@@ -6,6 +6,7 @@ Welcome to esorm's documentation!
    :caption: Contents
 
    Introduction <introduction>
+   Query Builder <query_builder_usage>
    Advanced Usage <advanced_usage>
    reference
    changelog

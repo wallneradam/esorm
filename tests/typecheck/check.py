@@ -5,15 +5,18 @@ The type hints are tested with pyright (used by VS Code / Pylance) and mypy:
 
 - the ``ok_*.py`` files show correct usage, nothing may be reported in them
 - in the ``errors*.py`` files every line marked with ``# E: <reason>`` must be reported, and nothing else
+- the python examples of the query builder documentation are correct usage too, they are collected into a temporary
+  ``ok_docs.py`` file (every example is the body of a function), the problems are reported at the markdown lines
 
 Run it from the project root: ``python tests/typecheck/check.py``
 """
-from typing import Dict, List, Set, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 import json
 import re
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 HERE = Path(__file__).parent
@@ -24,6 +27,8 @@ MYPY_LINE = re.compile(r'^(?P<file>[^:]+):(?P<line>\d+):(?:\d+:)? (?P<severity>e
 
 # Diagnostics: file -> line -> messages
 Diagnostics = Dict[str, Dict[int, List[str]]]
+# The origins of the lines of generated files: file -> line -> "markdown file:line"
+Origins = Dict[str, Dict[int, str]]
 
 
 def run_pyright(files: List[Path]) -> Diagnostics:
@@ -66,7 +71,29 @@ def expected_lines(file: Path) -> Set[int]:
     return {i for i, line in enumerate(file.read_text().splitlines(), 1) if MARKER.search(line)}
 
 
-def check(tool: str, diags: Diagnostics, files: List[Path]) -> List[str]:
+def docs_examples(directory: Path) -> Tuple[Path, Origins]:
+    """
+    The python examples of the query builder documentation in one file, every example is the body of a function
+
+    :return: The file, and the origins of its lines
+    """
+    sys.path.insert(0, str(ROOT))
+    from tests.docs_examples import builder_blocks
+
+    lines = ['# pyright: standard', '""" Generated from the documentation by check.py """', '']
+    origins: Dict[int, str] = {}
+    for n, block in enumerate(builder_blocks()):
+        lines.append(f'async def _example_{n}() -> None:')
+        for i, code_line in enumerate(block.code.splitlines()):
+            lines.append(f'    {code_line}' if code_line else '')
+            origins[len(lines)] = f"{block.file.relative_to(ROOT)}:{block.line + 1 + i}"
+        lines.append('')
+    file = directory / 'ok_docs.py'
+    file.write_text('\n'.join(lines))
+    return file, {str(file.resolve()): origins}
+
+
+def check(tool: str, diags: Diagnostics, files: List[Path], origins: Optional[Origins] = None) -> List[str]:
     """ Compare the reported and the expected lines """
     problems = []
     for file in files:
@@ -74,9 +101,10 @@ def check(tool: str, diags: Diagnostics, files: List[Path]) -> List[str]:
         reported = diags.get(str(file.resolve()), {})
         expected = expected_lines(file)
         rel = file.relative_to(ROOT)
+        origin = (origins or {}).get(str(file.resolve()), {})
         for line in sorted(set(reported) - expected):
             for msg in reported[line]:
-                problems.append(f"{tool}: {rel}:{line}: unexpected: {msg}")
+                problems.append(f"{tool}: {origin.get(line, f'{rel}:{line}')}: unexpected: {msg}")
         for line in sorted(expected - set(reported)):
             problems.append(f"{tool}: {rel}:{line}: not reported: {lines[line - 1].strip()}")
     return problems
@@ -121,15 +149,18 @@ def main() -> int:
     files = sorted(HERE.glob('ok_*.py')) + sorted(HERE.glob('errors*.py'))
     problems: List[str] = check_stubs()
     summary: List[Tuple[str, int]] = []
-    for tool, runner in (('pyright', run_pyright), ('mypy', run_mypy)):
-        diags = runner(files)
-        tool_problems = check(tool, diags, files)
-        problems += tool_problems
-        summary.append((tool, len(tool_problems)))
+    with tempfile.TemporaryDirectory(dir=HERE) as tmp:
+        docs_file, origins = docs_examples(Path(tmp))
+        files.append(docs_file)
+        for tool, runner in (('pyright', run_pyright), ('mypy', run_mypy)):
+            diags = runner(files)
+            tool_problems = check(tool, diags, files, origins)
+            problems += tool_problems
+            summary.append((tool, len(tool_problems)))
+        n_expected = sum(len(expected_lines(f)) for f in files)
 
     for problem in problems:
         print(problem)
-    n_expected = sum(len(expected_lines(f)) for f in files)
     for tool, n in summary:
         print(f"{tool}: {'OK' if n == 0 else f'{n} problems'} ({len(files)} files, {n_expected} expected errors)")
     return 1 if problems else 0

@@ -18,6 +18,14 @@ esorm.aggs module
    :undoc-members:
    :show-inheritance:
 
+esorm.builder module
+^^^^^^^^^^^^^^^^^^^^
+
+.. automodule:: esorm.builder
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 esorm.bulk module
 ^^^^^^^^^^^^^^^^^
 
