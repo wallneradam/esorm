@@ -372,7 +372,7 @@ class Document(ESModel):
     embedding: dense_vector = DenseVectorField(
         ...,  # required field
         dims=384,  # dimension of the vector
-        similarity="cosine"  # similarity metric: 'cosine', 'dot_product', or 'l2'
+        similarity="cosine"  # similarity metric: 'cosine' (default), 'dot_product', 'l2_norm' or 'max_inner_product'
     )
 ```
 
@@ -1096,7 +1096,7 @@ class Document(ESModel):
     embedding: dense_vector = DenseVectorField(
         ...,  # required field
         dims=384,  # dimension of the vector
-        similarity="cosine"  # similarity metric: 'cosine', 'dot_product', or 'l2'
+        similarity="cosine"  # similarity metric: 'cosine' (default), 'dot_product', 'l2_norm' or 'max_inner_product'
     )
 ```
 
