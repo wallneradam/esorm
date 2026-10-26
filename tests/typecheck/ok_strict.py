@@ -43,6 +43,8 @@ async def usage() -> None:
     print(doc, res)
     loaded: Item = Item.from_es({'_id': '1', '_source': {'name': 'name'}})
     print(loaded.name)
+    raw = await Item.search_raw({'match': {'name': 'name'}}, page_size=10, _source=False)
+    print([hit['_id'] for hit in raw['hits']['hits']])
 
     async with ESBulk(wait_for=True) as bulk:
         await bulk.save(item)
