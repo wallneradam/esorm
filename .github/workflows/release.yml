@@ -1,84 +1,41 @@
 name: Release
 
-# Started manually (Actions → Release → Run workflow) on the default branch.
-# It runs the tests, bumps the patch version in pyproject.toml (X.Y.Z → X.Y.Z+1),
-# commits and tags it (vX.Y.Z+1), builds the package, uploads it to PyPI using
-# Trusted Publishing (no API token needed) and creates the GitHub Release.
+# Publishing a GitHub Release (tag: vX.Y.Z) runs the tests, builds the package
+# and uploads it to PyPI using Trusted Publishing (no API token needed).
 
 on:
-  workflow_dispatch:
+  release:
+    types: [published]
 
 permissions:
   contents: read
 
-concurrency:
-  group: release
-  cancel-in-progress: false
-
 jobs:
   tests:
     name: Tests
-    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
     uses: ./.github/workflows/tests.yml
-
-  bump:
-    name: Bump version
-    needs: tests
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      contents: write  # Push the version bump commit and the tag
-    outputs:
-      version: ${{ steps.bump.outputs.version }}
-
-    steps:
-      - uses: actions/checkout@v5
-
-      - name: Bump the patch version in pyproject.toml
-        id: bump
-        run: |
-          VERSION=$(python3 - <<'EOF'
-          import re
-          from pathlib import Path
-
-          path = Path("pyproject.toml")
-          text = path.read_text()
-          pattern = re.compile(r'^version = "(\d+)\.(\d+)\.(\d+)"$', re.MULTILINE)
-          match = pattern.search(text)
-          if not match:
-              raise SystemExit("Version (X.Y.Z) not found in pyproject.toml")
-          major, minor, patch = match.groups()
-          version = f"{major}.{minor}.{int(patch) + 1}"
-          path.write_text(pattern.sub(f'version = "{version}"', text, count=1))
-          print(version)
-          EOF
-          )
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "New version: $VERSION"
-
-      - name: Commit, tag and push
-        env:
-          VERSION: ${{ steps.bump.outputs.version }}
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -am "Release v$VERSION"
-          git tag "v$VERSION"
-          git push --atomic origin "HEAD:${GITHUB_REF_NAME}" "v$VERSION"
 
   build:
     name: Build distribution
-    needs: bump
+    needs: tests
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
     steps:
       - uses: actions/checkout@v5
-        with:
-          ref: v${{ needs.bump.outputs.version }}
 
       - name: Set up uv
         uses: astral-sh/setup-uv@v7
+
+      - name: Check that the tag matches the version in pyproject.toml
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          VERSION=$(python3 -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')
+          if [ "${TAG#v}" != "$VERSION" ]; then
+            echo "::error::Tag '$TAG' does not match the version in pyproject.toml ('$VERSION')"
+            exit 1
+          fi
 
       - name: Build sdist and wheel
         run: uv build
@@ -111,23 +68,3 @@ jobs:
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
-
-  github-release:
-    name: Create GitHub Release
-    needs: [bump, publish]
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      contents: write  # Create the release
-
-    steps:
-      - uses: actions/download-artifact@v5
-        with:
-          name: dist
-          path: dist/
-
-      - name: Create the release with the distribution files
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: v${{ needs.bump.outputs.version }}
-        run: gh release create "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --title "$TAG" --generate-notes --verify-tag
