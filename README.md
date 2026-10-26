@@ -4,10 +4,10 @@
 
 [![Tests](https://github.com/wallneradam/esorm/actions/workflows/tests.yml/badge.svg)](https://github.com/wallneradam/esorm/actions/workflows/tests.yml)
 
-ESORM is an ElasticSearch Object Relational Mapper or Object Document Mapper (ODM) if you like,
- for Python based on Pydantic. It is a high-level library for managing ElasticSearch documents
- in Python. It is fully async and uses annotations and type hints for type checking and IDE autocompletion.
- It works with OpenSearch too.
+ESORM is an ElasticSearch Object Relational Mapper (or Object Document Mapper, if you like) for Python, based on
+Pydantic. You define your documents as Pydantic models, and ESORM creates the indices and mappings, and saves, loads
+and searches the documents. It is fully async, and it is fully type hinted, so IDEs can autocomplete and check
+the models, the queries and the results. It works with OpenSearch too.
 
 ## ☰ Table of Contents
 
@@ -20,7 +20,7 @@ ESORM is an ElasticSearch Object Relational Mapper or Object Document Mapper (OD
     - [Define a model](#define-a-model)
         - [Python basic types](#python-basic-types)
         - [ESORM field types](#esorm-field-types)
-        - [Field Definition](#field-definition)
+        - [Field definition](#field-definition)
         - [Subfields](#subfields)
         - [geo_point](#geo_point)
         - [dense_vector](#dense_vector)
@@ -28,9 +28,10 @@ ESORM is an ElasticSearch Object Relational Mapper or Object Document Mapper (OD
         - [List primitive fields](#list-primitive-fields)
         - [ESBaseModel](#esbasemodel)
         - [Id field](#id-field)
-        - [Model Settings](#model-settings)
-        - [Describe fields](#describe-fields)
+        - [Model settings](#model-settings)
         - [ESModelTimestamp](#esmodeltimestamp)
+        - [Describe fields](#describe-fields)
+        - [Aliases](#aliases)
     - [Connecting to ElasticSearch](#connecting-to-elasticsearch)
         - [Connecting to OpenSearch](#connecting-to-opensearch)
         - [Client](#client)
@@ -42,12 +43,12 @@ ESORM is an ElasticSearch Object Relational Mapper or Object Document Mapper (OD
     - [CRUD: Update](#crud-update)
     - [CRUD: Delete](#crud-delete)
     - [Bulk operations](#bulk-operations)
-    - [Search](#search)
+    - [Search](#searching)
         - [General search](#general-search)
         - [Query builder](#query-builder-intro)
         - [Search with field value terms (dictionary search)](#search-with-field-value-terms-dictionary-search)
         - [Count](#count)
-        - [Vector Search](#vector-search)
+        - [Vector search](#vector-search)
     - [Aggregations](#aggregations)
     - [Pagination and sorting](#pagination-and-sorting)
     - [Iterating through all results (scan)](#iterating-through-all-results)
@@ -61,13 +62,13 @@ ESORM is an ElasticSearch Object Relational Mapper or Object Document Mapper (OD
     - [Optimistic concurrency control](docs/advanced.md#optimistic-concurrency-control)
     - [Lazy properties](docs/advanced.md#lazy-properties)
     - [Shard routing](docs/advanced.md#shard-routing)
-    - [Retreive Selected Fields Only](docs/advanced.md#retreive-selected-fields-only)
+    - [Retrieve selected fields only](docs/advanced.md#retrieve-selected-fields-only)
     - [Iterating through large result sets](docs/advanced.md#iterating-through-large-result-sets)
     - [Watchers](docs/advanced.md#watchers)
     - [FastAPI integration](docs/advanced.md#fastapi-integration)
         - [FastAPI pagination](docs/advanced.md#fastapi-pagination)
         - [FastAPI streaming export](docs/advanced.md#fastapi-streaming-export)
-- [🖥 IDE Support and type checking](#ide-support)
+- [🖥 IDE support and type checking](#ide-support)
     - [Type checking of queries and aggregations](#type-checking)
 - [🧪 Testing](#testing)
 - [🛡 License](#license)
@@ -75,7 +76,6 @@ ESORM is an ElasticSearch Object Relational Mapper or Object Document Mapper (OD
 
 <a id="installation"></a>
 ## 💾 Installation
-
 
 ```bash
 pip install pyesorm
@@ -90,66 +90,67 @@ pip install pyesorm[opensearch]
 <a id="features"></a>
 ## 🚀 Features
 
-- Pydantic model representation of ElasticSearch documents
-- Automatic mapping and index creation
+- Pydantic models for ElasticSearch documents
+- Automatic index and mapping creation from the models
 - CRUD operations
-- Full async support (no sync version at all)
-- Mapping to and from ElasticSearch types
-- Support for nested documents
+- Async only (there is no sync API)
+- Conversion between Python and ElasticSearch types
+- Nested documents
 - Automatic optimistic concurrency control
 - Custom id field
-- Context for bulk operations
-- Supported IDE autocompletion and type checking (PyCharm tested)
-- Everything in the source code is documented and annotated
+- Bulk operations in an `async with` block
+- IDE autocompletion and type checking (tested with PyCharm, pyright and mypy)
+- Docstrings and type hints everywhere in the source code
 - `TypedDict`s for ElasticSearch queries and aggregations
-- Docstring support for fields
-- Shard routing support
-- Lazy properties
-- Support >= Python 3.10 (tested with 3.10 through 3.14)
-- Support for ElasticSearch 9.x and 8.x
-- Support for OpenSearch 3.x and 2.x
-- Watcher support (You may need ElasticSearch subscription license for this)
+- A query builder, if you don't like nested dicts
+- Field descriptions from docstrings
+- Shard routing
+- Lazy properties (async computed fields)
+- Python 3.10 - 3.14
+- ElasticSearch 8.x and 9.x
+- OpenSearch 2.x and 3.x
+- Watchers (ElasticSearch needs a paid subscription for them)
 - Pagination and sorting
 - Iterating through any number of results efficiently (point in time + `search_after`)
 - FastAPI integration
 
-Not all ElasticSearch features are supported yet, pull requests are welcome.
+Not all ElasticSearch features are supported yet. Pull requests are welcome.
 
 <a id="supported-elasticsearch-versions"></a>
 ### Supported ElasticSearch versions
 
-It is tested with ElasticSearch 8.x and 9.x. ElasticSearch 7.x is supported by ESORM 0.7.x.
+ESORM is tested with ElasticSearch 8.x and 9.x. If you need ElasticSearch 7.x, use ESORM 0.7.x.
 
-ESORM uses the official `elasticsearch` 9.x Python client. The client asks the server for API compatibility
-with its own major version, which ElasticSearch 8.x rejects, so ESORM detects the server version
-and lowers the requested compatibility version to it automatically.
+ESORM uses the official `elasticsearch` 9.x Python client. This client asks the server for API compatibility with
+its own major version, which ElasticSearch 8.x rejects. ESORM detects the version of the server, and if it is older,
+it asks for the compatibility of that version instead.
 
 <a id="supported-opensearch-versions"></a>
 ### Supported OpenSearch versions
 
-It is tested with OpenSearch 2.19 and 3.x.
+ESORM is tested with OpenSearch 2.19 and 3.x.
 
-OpenSearch is supported through the official `opensearch-py` client, which is installed with the `opensearch`
-extra (`pip install pyesorm[opensearch]`). If it is installed, `connect` detects the type of the server
-automatically, see [Connecting to OpenSearch](#connecting-to-opensearch).
+OpenSearch is supported through the official `opensearch-py` client, which is installed with the `opensearch` extra
+(`pip install pyesorm[opensearch]`). If it is installed, `connect` detects the type of the server automatically,
+see [Connecting to OpenSearch](#connecting-to-opensearch).
 
 ESORM wraps the `opensearch-py` client, so the same code works with both servers:
 
 - The most common API methods (`index`, `create`, `update`, `bulk`, `mget`, `search`, `msearch`, `count`,
   `delete_by_query`, `update_by_query`, `indices.create`, `indices.put_mapping`, `indices.put_settings`,
   `indices.put_index_template`) accept the keyword arguments of the `elasticsearch` client (e.g. `query`, `sort`,
-  `document`, `operations`, `mappings`), other methods should be called as in `opensearch-py`.
+  `document`, `operations`, `mappings`). Call the other methods as you would in `opensearch-py`.
 - `dense_vector` fields are mapped to `knn_vector` fields, and ElasticSearch `knn` queries are converted to
   OpenSearch `knn` queries.
-- The exceptions of the `elasticsearch` client are raised (e.g. `elasticsearch.NotFoundError`,
-  `elasticsearch.ConflictError`), so you can handle errors the same way.
+- ESORM raises the exceptions of the `elasticsearch` client (e.g. `elasticsearch.NotFoundError`,
+  `elasticsearch.ConflictError`), so you can handle errors the same way for both servers.
 
 Watchers are not supported with OpenSearch.
 
 <a id="supported-python-versions"></a>
 ### Supported Python versions
 
-Tested with Python 3.10 through 3.14.
+Python 3.10 through 3.14 are tested.
 
 <a id="usage"></a>
 ## 📖 Usage
@@ -157,11 +158,14 @@ Tested with Python 3.10 through 3.14.
 <a id="define-a-model"></a>
 ### Define a model
 
-You can use all [Pydantic](https://pydantic-docs.helpmanual.io/usage/models/) model features, because `ESModel` is a subclass of `pydantic.BaseModel`.
-(Actually it is a subclass of `ESBaseModel`, see more [below...](#esbasemodel))
+`ESModel` is a subclass of `pydantic.BaseModel` (through `ESBaseModel`, see [below](#esbasemodel)), so you can use
+every feature of [Pydantic](https://docs.pydantic.dev/latest/concepts/models/) models. ESORM adds the ElasticSearch
+specific parts: it converts the documents to and from ElasticSearch types, and runs the ElasticSearch operations for
+you.
 
-`ESModel` extends pydantic `BaseModel` with ElasticSearch specific features. It serializes and deserializes
-documents to and from ElasticSearch types and handle ElasticSearch operations in the background.
+Every model has its own index. By default, the name of the index is the name of the class in snake_case with the
+`esorm_` prefix, e.g. the index of `User` is `esorm_user`, and the index of `BlogPost` is `esorm_blog_post`. See
+[Model settings](#model-settings) if you need another name.
 
 <a id="python-basic-types"></a>
 #### Python basic types
@@ -175,22 +179,25 @@ class User(ESModel):
     age: int
 ```
 
-This is how the python types are converted to ES types:
+The Python types are mapped to these ElasticSearch types:
 
-| Python type         | ES type   | Comment                     |
-|---------------------|-----------|-----------------------------|
-| `str`               | `keyword` |                             |
-| `int`               | `long`    |                             |
-| `float`             | `double`  |                             |
-| `bool`              | `boolean` |                             |
-| `datetime.datetime` | `date`    | Stored in UTC               |
-| `datetime.date`     | `date`    |                             |
-| `datetime.time`     | `date`    | Stored as 1970-01-01 + time |
-| `typing.Literal`    | `keyword` |                             |
-| `UUID`              | `keyword` |                             |
-| `Path`              | `keyword` |                             |
-| `IntEnum`           | `integer` |                             |
-| `Enum`              | `keyword` | also StrEnum                |
+| Python type         | ES type   | Comment                         |
+|---------------------|-----------|---------------------------------|
+| `str`               | `keyword` |                                 |
+| `int`               | `long`    |                                 |
+| `float`             | `double`  |                                 |
+| `bool`              | `boolean` |                                 |
+| `datetime.datetime` | `date`    | Stored in UTC                   |
+| `datetime.date`     | `date`    |                                 |
+| `datetime.time`     | `date`    | Stored as 1970-01-01 + the time |
+| `typing.Literal`    | `keyword` |                                 |
+| `UUID`              | `keyword` |                                 |
+| `Path`              | `keyword` |                                 |
+| `IntEnum`           | `integer` |                                 |
+| `Enum`              | `keyword` | `StrEnum` too                   |
+
+Note that `str` is mapped to `keyword`, which is for exact values. For full text search use the `text` type of
+`esorm.fields` (see below).
 
 Datetimes and times are always stored in UTC, as ElasticSearch does:
 - Timezone aware values are converted to UTC, so the stored value is the same instant.
@@ -204,18 +211,19 @@ Datetimes and times are always stored in UTC, as ElasticSearch does:
 Queries (e.g. `Range`) get datetimes the same way: aware ones are interpreted with their timezone, naive ones
 as UTC (unless the `time_zone` parameter of the query says otherwise).
 
-Some special pydanctic types are also supported:
+Some Pydantic types are supported too:
 
-| Pydantic type   | ES type   | Comment |
-|-----------------|-----------|---------|
-| `URL`           | `keyword` |         |
-| `IPvAddressAny` | `ip`      |         |
+| Pydantic type                         | ES type   |
+|---------------------------------------|-----------|
+| `AnyUrl` and its subclasses (`HttpUrl`, ...) | `keyword` |
+| `IPvAnyAddress`                       | `ip`      |
 
+Fields can be `Optional`, e.g. `age: Optional[int] = None`. The mapping is the same as without `Optional`.
 
 <a id="esorm-field-types"></a>
 #### ESORM field types
 
-You can specify ElasticSearch special fields using `esorm.fields` module.
+The `esorm.fields` module has types for the other ElasticSearch field types:
 
 ```python
 from esorm import ESModel
@@ -228,12 +236,12 @@ class User(ESModel):
     age: byte
     location: geo_point
     embedding: dense_vector
-    ...
+    # ...
 ```
 
-The supported fields are:
+The supported types are:
 
-| Field name                  | ES type         |
+| Field type                  | ES type         |
 |-----------------------------|-----------------|
 | `keyword`                   | `keyword`       |
 | `text`                      | `text`          |
@@ -250,109 +258,131 @@ The supported fields are:
 | `geo_point`                 | `geo_point`     |
 | `dense_vector`              | `dense_vector`  |
 
-The `binary` field accepts **base64** encoded strings. However, if you provide `bytes` to it, they
-will be automatically converted to a **base64** string during serialization. When you retrieve the
-field, it will always be a **base64** encoded string. You can easily convert it back to bytes using
-the `bytes()` method: `binary_field.bytes()`.
+In Python these are ordinary values: a `text` field is a `str`, a `byte` field is an `int`, and so on.
 
-You can also use `Annotated` types to specify the ES type, like Pydantic `PositiveInt` and
-`NegativeInt` and similar.
+A `binary` field stores **base64** encoded strings. You can give it `bytes` too, they are converted to base64. When
+you read the field, it is always the base64 string, but its `bytes` property returns the decoded data:
+`user.avatar.bytes`.
+
+The ES type of `Annotated` types is the type of their base type, e.g. Pydantic `PositiveInt` and `NegativeInt` are
+`long` fields.
 
 <a id="field-definition"></a>
-#### Field Definition
+#### Field definition
 
-ESORM fields can be defined with specialized field definition functions for more control:
+The type annotation of a field decides its ES type. If you need more control, use the field functions of
+`esorm.fields` as the default value of the field. They accept the arguments of `pydantic.Field` (validation,
+`alias`, `description`, ...) and some ElasticSearch mapping options:
 
 ```python
-from esorm.fields import Field, TextField, NumericField, DenseVectorField
+from esorm import ESModel
+from esorm.fields import Field, TextField, NumericField, DenseVectorField, text, geo_point, dense_vector
+
 
 class Product(ESModel):
     id: str
-    name: str = TextField(..., min_length=3, max_length=100)
+    name: text = TextField(..., min_length=3, max_length=100)
     price: float = NumericField(..., gt=0)
     is_available: bool = Field(True)
+    internal_note: str = Field('', index=False)  # Stored, but not searchable
     location: geo_point
     embedding: dense_vector = DenseVectorField(..., dims=384, similarity="cosine")
 ```
 
+The first argument is the default value, `...` means that the field is required.
+
+| Function           | For                 | ES mapping options                    |
+|--------------------|---------------------|---------------------------------------|
+| `Field`            | any field           | `index`, `fields`                     |
+| `TextField`        | `text` and `keyword` | `index`, `fields`, `keyword`         |
+| `NumericField`     | numeric fields      | `index`, `fields`                     |
+| `DenseVectorField` | `dense_vector`      | `index`, `dims`, `similarity`         |
+
+`index=False` stores the field, but it can't be searched. You can also give `analyzer` and `search_analyzer` to the
+field functions, they are added to the mapping as they are.
+
 <a id="subfields"></a>
 #### Subfields
 
-Elasticsearch allows you to define multiple ways to index the same field using subfields. 
-This is particularly useful for text fields where you might want both full-text search and exact matching capabilities.
+ElasticSearch can index the same field in more ways, using subfields (multi-fields). The most common case is a
+`text` field for full text search, with a `keyword` subfield for exact matching, sorting and aggregations.
 
-##### Basic Usage with `keyword` Shortcut
-
-The most common use case is adding a `keyword` subfield to a `text` field for exact matching:
+##### The `keyword` shortcut
 
 ```python
 from esorm import ESModel
-from esorm.fields import TextField
+from esorm.fields import TextField, text
+
 
 class Product(ESModel):
-    # Text field with automatic keyword subfield
-    title: str = TextField(..., keyword=True)
-    # Equivalent to: {'fields': {'keyword': {'type': 'keyword'}}}
+    # A text field with a keyword subfield
+    title: text = TextField(..., keyword=True)
+    # The same as: TextField(..., fields={'keyword': {'type': 'keyword'}})
 ```
 
-With this setup, you can:
-- Search full-text on `title`
-- Do exact matches, aggregations, or sorting on `title.keyword`
+With this mapping you can:
 
-##### Custom Subfields
+- search `title` with full text queries (e.g. `match`)
+- use `title.keyword` for exact matches, aggregations and sorting
 
-You can define custom subfields for any field type using the `fields` parameter:
+##### Custom subfields
+
+The `fields` parameter adds any subfields, to any type of field:
 
 ```python
-from esorm import ESModel  
-from esorm.fields import TextField, NumericField, Field
+from esorm import ESModel
+from esorm.fields import TextField, NumericField, Field, text
+
 
 class Product(ESModel):
-    # Text field with multiple analyzers
-    description: str = TextField(..., fields={
+    # A text field with more analyzers
+    description: text = TextField(..., fields={
         'english': {'type': 'text', 'analyzer': 'english'},
-        'spanish': {'type': 'text', 'analyzer': 'spanish'}, 
+        'spanish': {'type': 'text', 'analyzer': 'spanish'},
         'suggest': {'type': 'completion'}
     })
-    
-    # Numeric field with keyword subfield for aggregations
+
+    # A numeric field with a keyword subfield
     price: float = NumericField(..., fields={
         'raw': {'type': 'keyword'}
     })
-    
-    # Regular field with normalized keyword
+
+    # A keyword field with a lowercase subfield
     category: str = Field(..., fields={
         'lowercase': {'type': 'keyword', 'normalizer': 'lowercase'}
     })
 ```
 
-##### Combining `keyword` Shortcut with Custom Fields
+##### The `keyword` shortcut together with custom subfields
 
-You can use both the `keyword` shortcut and custom fields together. The keyword subfield will be automatically added if not already defined:
+If you give both, the `keyword` subfield is added to the custom subfields, unless they already have one:
 
 ```python
+from esorm import ESModel
+from esorm.fields import TextField, text
+
+
 class Product(ESModel):
-    # Both keyword and custom fields
-    title: str = TextField(..., keyword=True, fields={
+    title: text = TextField(..., keyword=True, fields={
         'suggest': {'type': 'completion'},
         'ngram': {'type': 'text', 'analyzer': 'ngram'}
     })
-    # Results in: {
-    #     'keyword': {'type': 'keyword'},  # Added automatically
+    # The subfields: {
+    #     'keyword': {'type': 'keyword'},  # Added by keyword=True
     #     'suggest': {'type': 'completion'},
     #     'ngram': {'type': 'text', 'analyzer': 'ngram'}
     # }
-    
-    # Custom keyword configuration takes precedence
-    name: str = TextField(..., keyword=True, fields={
-        'keyword': {'type': 'keyword', 'ignore_above': 512}  # Custom config preserved
+
+    # Your own keyword subfield is kept as it is
+    name: text = TextField(..., keyword=True, fields={
+        'keyword': {'type': 'keyword', 'ignore_above': 512}
     })
 ```
 
 <a id="geo_point"></a>
 #### geo_point
 
-You can use geo_point field type for location data:
+Use the `geo_point` type for locations:
 
 ```python
 from esorm import ESModel
@@ -372,57 +402,76 @@ async def create_place():
 <a id="dense_vector"></a>
 #### dense_vector
 
-The `dense_vector` field type enables vector similarity search capabilities in Elasticsearch (available in ES 8.x):
+The `dense_vector` type stores vectors (embeddings) for vector similarity search, see
+[Vector search](#vector-search):
 
 ```python
 from esorm import ESModel
 from esorm.fields import dense_vector, DenseVectorField
 
+
 class Document(ESModel):
     id: str
     content: str
     embedding: dense_vector = DenseVectorField(
-        ...,  # required field
-        dims=384,  # dimension of the vector
-        similarity="cosine"  # similarity metric: 'cosine', 'dot_product', or 'l2'
+        ...,  # Required field
+        dims=384,  # The dimension of the vectors
+        # The similarity metric: 'cosine' (default), 'dot_product', 'l2_norm' or 'max_inner_product'
+        similarity="cosine"
     )
 ```
 
 ElasticSearch 9.2+ excludes vectors from `_source` by default, so they would be missing from the loaded models.
-To keep the models complete, ESORM creates indices with dense vector fields with
-`index.mapping.exclude_source_vectors: false`, unless you set `exclude_source_vectors` explicitly
-in `ESConfig.settings`.
+To keep the models complete, ESORM creates the indices which have dense vector fields with
+`index.mapping.exclude_source_vectors: false`, unless you set `exclude_source_vectors` in `ESConfig.settings`.
 
 With OpenSearch, `dense_vector` fields are mapped to `knn_vector` fields (`dims` → `dimension`,
-`similarity` → `space_type`) and `index.knn: true` is set on the index. Here `dims` is required, because
+`similarity` → `space_type`), and `index.knn: true` is set on the index. `dims` is required here, because
 OpenSearch can't detect it from the documents. OpenSearch 3.x+ derives the vectors in `_source` from the index
 (normalized for cosine similarity), so ESORM creates the indices with `index.knn.derived_source.enabled: false`,
-unless you set it explicitly in `ESConfig.settings`.
+unless you set it in `ESConfig.settings`.
 
 <a id="nested-documents"></a>
 #### Nested documents
 
+A field can be another model. Use `ESBaseModel` for these sub-models, because an `ESModel` would get its own index
+too (see [ESBaseModel](#esbasemodel)):
+
 ```python
-from esorm import ESModel
+from typing import List
+from esorm import ESModel, ESBaseModel
 from esorm.fields import keyword, text, byte
 
 
-class User(ESModel):
+class User(ESBaseModel):
     name: text
     email: keyword
     age: byte = 18
 
 
+class Comment(ESBaseModel):
+    author: keyword
+    text: text
+
+
 class Post(ESModel):
     title: text
     content: text
-    writer: User  # User is a nested document
+    writer: User  # An object field
+    comments: List[Comment] = []  # A nested field
 ```
+
+A single sub-model is an `object` field, its fields are stored as if they were fields of the main document, so you
+can query them directly, e.g. `writer.name`.
+
+A list of sub-models is a `nested` field. ElasticSearch stores every item as a separate (hidden) document, so a
+query can match the fields of the same item. You need a `nested` query for these fields, see
+[Joining queries](docs/query_builder.md#builder-joining-queries) in the query builder chapter.
 
 <a id="list-primitive-fields"></a>
 #### List primitive fields
 
-You can use list of primitive fields:
+Fields can be lists of primitive types:
 
 ```python
 from typing import List
@@ -432,24 +481,28 @@ from esorm import ESModel
 class User(ESModel):
     emails: List[str]
     favorite_ids: List[int]
-    ...
+    # ...
 ```
+
+ElasticSearch has no list type, every field can have more values. So the mapping is the same as for a single
+value, e.g. `List[str]` is a `keyword` field.
 
 <a id="esbasemodel"></a>
 #### ESBaseModel
 
-`ESBaseModel` is the base of `ESModel`.
+`ESBaseModel` is the base class of `ESModel`. It has the same features, but it doesn't have an index. Use it for
+sub-models (see [Nested documents](#nested-documents)), and for base classes of your models.
 
-##### Use it for abstract models
+##### Base classes
 
 ```python
 from esorm import ESModel, ESBaseModel
 from esorm.fields import keyword, text, byte
 
 
-# This way `User` model won't be in the index
-class BaseUser(ESBaseModel):  # <---------------
-    # This config will be inherited by User
+# BaseUser doesn't have an index
+class BaseUser(ESBaseModel):
+    # The subclasses inherit this config
     class ESConfig:
         id_field = 'email'
 
@@ -457,7 +510,7 @@ class BaseUser(ESBaseModel):  # <---------------
     email: keyword
 
 
-# This will be in the index because it is a subclass of ESModel
+# UserExtended has an index, because it is a subclass of ESModel
 class UserExtended(BaseUser, ESModel):
     age: byte = 18
 
@@ -471,34 +524,14 @@ async def create_user():
     await user.save()
 ```
 
-##### Use it for nested documents
-
-It is useful to use it for nested documents, because by using it will not be included in the
-ElasticSearch index.
-
-```python
-from esorm import ESModel, ESBaseModel
-from esorm.fields import keyword, text, byte
-
-
-# This way `User` model won't be in the index
-class User(ESBaseModel):  # <---------------
-    name: text
-    email: keyword
-    age: byte = 18
-
-
-class Post(ESModel):
-    title: text
-    content: text
-    writer: User  # User is a nested document
-
-```
+The `ESConfig` is inherited from the first base class, and the `index` setting is never inherited, every model
+has its own index.
 
 <a id="id-field"></a>
 #### Id field
 
-You can specify id field in [model settings](#model-settings):
+By default, ElasticSearch generates the id of the document when it is saved. If you want to set it yourself,
+specify the id field in the [model settings](#model-settings):
 
 ```python
 from esorm import ESModel
@@ -514,22 +547,20 @@ class User(ESModel):
     age: byte = 18
 ```
 
-This way the field specified in `id_field` will be removed from the document and used as the document `_id` in the
-index.
+The id field is not stored in the document, its value is the document `_id`.
 
-If you specify a field named `id` in your model, it will be used as the document `_id` in the index
-(it will automatically override the `id_field` setting):
+A field named `id` is always the id field, you don't need to set `id_field` for it:
 
 ```python
 from esorm import ESModel
 
 
 class User(ESModel):
-    id: int  # This will be used as the document _id in the index
+    id: int  # This is the document _id
     name: str
 ```
 
-You can also create an `__id__` property in your model to return a custom id:
+You can also compute the id in an `__id__` property:
 
 ```python
 from esorm import ESModel
@@ -546,12 +577,14 @@ class User(ESModel):
         return self.email
 ```
 
-NOTE: annotation of `__id__` method is important, and it must be declared as a property.
+`__id__` must be a property. In this case `email` is stored in the document too.
+
+The `_id` of a document is always a string in ElasticSearch, even if the id field is an `int`.
 
 <a id="model-settings"></a>
-#### Model Settings
+#### Model settings
 
-You can specify model settings using `ESConfig` child class.
+You can configure a model in its `ESConfig` inner class. These are the settings and their defaults:
 
 ```python
 from typing import Optional, List, Dict, Any
@@ -561,14 +594,17 @@ from esorm import ESModel
 class User(ESModel):
     class ESConfig:
         """ ESModel Config """
-        # The index name
+        # The name of the index, the default is the class name in snake_case with the index prefix
         index: Optional[str] = None
-        # The name of the 'id' field
+        # The name of the id field
         id_field: Optional[str] = None
-        # Default sort
+        # The default sort of the searches, e.g. [{'name': {'order': 'asc'}}]
         default_sort: Optional[List[Dict[str, Dict[str, str]]]] = None
-        # ElasticSearch index settings (https://www.elastic.co/guide/en/elasticsearch/reference/current/index-modules.html)
+        # ElasticSearch index settings, they are used when the index is created
+        # (https://www.elastic.co/docs/reference/elasticsearch/index-settings/)
         settings: Optional[Dict[str, Any]] = None
+        # Don't create the index and the mappings of this model in setup_mappings()
+        skip_init: bool = False
         # Maximum recursion depth of lazy properties
         lazy_property_max_recursion_depth: int = 1
 ```
@@ -576,7 +612,7 @@ class User(ESModel):
 <a id="esmodeltimestamp"></a>
 #### ESModelTimestamp
 
-You can use `ESModelTimestamp` class to add `created_at` and `updated_at` fields to your model:
+`ESModelTimestamp` adds `created_at` and `modified_at` fields to your model:
 
 ```python
 from esorm import ESModelTimestamp
@@ -587,14 +623,13 @@ class User(ESModelTimestamp):
     age: int
 ```
 
-These fields will be automatically updated to the actual `datetime` when you create or update a document.
-The `created_at` field will be set only when you create a document. The `updated_at` field will be set
-when you create or update a document.
+They are set automatically when the document is saved (also in bulk operations): `created_at` when it is saved
+for the first time, `modified_at` every time.
 
 <a id="describe-fields"></a>
 #### Describe fields
 
-You can use the usual `Pydantic` field description, but you can also use docstrings like this:
+You can describe the fields the usual Pydantic way, but docstrings work too:
 
 ```python
 from esorm import ESModel
@@ -611,13 +646,13 @@ class User(ESModel):
     address: str = TextField(description="The address of the user")
 ```
 
-The documentation is usseful if you create an API and you want to generate documentation from the model.
-It can be used in [FastAPI](https://fastapi.tiangolo.com/) for example.
+The descriptions are in the JSON schema of the model, so they are useful if you generate API documentation from
+your models, e.g. with [FastAPI](https://fastapi.tiangolo.com/).
 
 <a id="aliases"></a>
-### Aliases
+#### Aliases
 
-You can specify aliases for fields:
+A field can have another name in ElasticSearch:
 
 ```python
 from esorm import ESModel
@@ -625,15 +660,15 @@ from esorm.fields import keyword, Field
 
 
 class User(ESModel):
-    full_name: keyword = Field(alias='fullName')  # In ES `fullName` will be the field name
+    full_name: keyword = Field(alias='fullName')  # The field is `fullName` in ES
 ```
 
-This is good for renaming fields in the model without changing the ElasticSearch field name.
+This way you can rename a field in the model, without changing the mapping and the stored documents.
 
 <a id="connecting-to-elasticsearch"></a>
 ### Connecting to ElasticSearch
 
-You can connect with a simple connection string:
+Connect with a simple connection string:
 
 ```python
 from esorm import connect
@@ -643,7 +678,7 @@ async def es_init():
     await connect('localhost:9200')
 ```
 
-Also you can connect to multiple hosts if you have a cluster:
+Or connect to more hosts of a cluster:
 
 ```python
 from esorm import connect
@@ -653,7 +688,7 @@ async def es_init():
     await connect(['localhost:9200', 'localhost:9201'])
 ```
 
-You can wait for node or cluster to be ready (recommended):
+You can wait for the node or the cluster to be ready (recommended):
 
 ```python
 from esorm import connect
@@ -663,24 +698,24 @@ async def es_init():
     await connect('localhost:9200', wait=True)
 ```
 
-This will ping the node in 2 seconds intervals until it is ready. It can be a long time.
+It pings the server every 2 seconds until it answers. There is no time limit, so it waits as long as it takes.
 
-You can pass any arguments that `AsyncElasticsearch` supports:
+`connect` passes the other arguments to `AsyncElasticsearch`:
 
 ```python
 from esorm import connect
 
 
 async def es_init():
-    await connect('localhost:9200', wait=True, sniff_on_start=True, sniff_on_connection_fail=True)
+    await connect('localhost:9200', wait=True, sniff_on_start=True, sniff_on_node_failure=True)
 ```
 
 <a id="connecting-to-opensearch"></a>
 #### Connecting to OpenSearch
 
-If the `opensearch-py` package is installed (`pip install pyesorm[opensearch]`), `connect` detects
-automatically whether the server is ElasticSearch or OpenSearch. In this case use the arguments of
-`AsyncElasticsearch`, the most common ones (`basic_auth`, `request_timeout`) are converted for OpenSearch:
+If the `opensearch-py` package is installed (`pip install pyesorm[opensearch]`), `connect` detects automatically
+whether the server is ElasticSearch or OpenSearch. Use the arguments of `AsyncElasticsearch` here too, the most
+common ones (`basic_auth`, `request_timeout`) are converted for OpenSearch:
 
 ```python
 from esorm import connect, is_opensearch
@@ -691,8 +726,8 @@ async def es_init():
     print(is_opensearch())
 ```
 
-If you need OpenSearch specific arguments (e.g. AWS authentication), specify the backend explicitly,
-then all arguments are passed to `AsyncOpenSearch` as they are:
+If you need OpenSearch specific arguments (e.g. AWS authentication), specify the backend explicitly. Then all
+arguments are passed to `AsyncOpenSearch` as they are:
 
 ```python
 from opensearchpy import AWSV4SignerAsyncAuth, AsyncHttpConnection
@@ -708,10 +743,9 @@ async def es_init(credentials):
 <a id="client"></a>
 #### Client
 
-The `connect` function is a wrapper for the `AsyncElasticsearch` constructor. It creates and stores
-a global instance of a proxy to an `AsyncElasticsearch` instance. The model operations will use this
-instance to communicate with ElasticSearch. You can retrieve the proxy client instance and you can
-use the same way as `AsyncElasticsearch` instance:
+`connect` creates an `AsyncElasticsearch` client and stores it globally. The models use this client.
+`esorm.es` is a proxy to this client, use it as an `AsyncElasticsearch` instance if you need the ElasticSearch API
+directly:
 
 ```python
 from esorm import es
@@ -724,23 +758,23 @@ async def es_init():
 <a id="create-index-templates"></a>
 ### Create index templates
 
-You can create index templates easily:
+You can create index templates:
 
 ```python
-from esorm import model as esorm_model
+from esorm.model import create_index_template
 
 
-# Create index template
 async def prepare_es():
-    await esorm_model.create_index_template('default_template',
-                                            prefix_name='esorm_',
-                                            shards=3,
-                                            auto_expand_replicas='1-5')
+    await create_index_template('default_template',
+                                prefix_name='esorm_',
+                                shards=3,
+                                auto_expand_replicas='1-5')
 ```
 
-Here this will be applied all `esorm_` prefixed (default) indices.
+This template is applied to every index whose name starts with `esorm_`, which is the default prefix of the
+indices. The arguments after `replicas` are added to the index settings.
 
-All indices created by ESORM have a prefix, which you can modify globally if you want:
+You can change the prefix of the indices globally, before the models are defined:
 
 ```python
 from esorm.model import set_default_index_prefix
@@ -748,43 +782,41 @@ from esorm.model import set_default_index_prefix
 set_default_index_prefix('custom_prefix_')
 ```
 
-The default prefix is `esorm_`.
-
 <a id="create-indices-and-mappings"></a>
 ### Create indices and mappings
 
-You can create indices and mappings automatically from your models:
+ESORM creates the indices and mappings from your models:
 
 ```python
 from esorm import setup_mappings
 
 
-# Create indices and mappings
 async def prepare_es():
     import models  # Import your models
-    # Here models argument is not needed, but you can pass it to prevent unused import warning
+    # The models argument is not needed, but passing it prevents the unused import warning
     await setup_mappings(models)
 ```
 
-First you must create (import) all model classes. Model classes will be registered into a global registry.
-Then you can call `setup_mappings` function to create indices and mappings for all registered models.
+The model classes are registered in a global registry when they are defined, so first import every model. Then
+`setup_mappings` creates the index and the mapping of every registered model.
 
-**IMPORTANT:** This method will ignore mapping errors if you already have an index with the same name. It can update the
-indices
-by new fields, but cannot modify or delete fields! For that you need to reindex your ES database. It is an ElasticSearch
-limitation.
+If an index already exists, `setup_mappings` adds the new fields to its mapping, but it can't change or delete the
+existing fields. This is an ElasticSearch limitation, for such changes you need to reindex the data. If the new
+mapping is not compatible with the existing one, a warning is logged, and the other models are processed.
+`ESConfig.settings` is used only when the index is created.
+
+With `setup_mappings(debug=True)` the mappings are logged.
 
 <a id="model-instances"></a>
 ### Model instances
 
-When you get a model instance from elasticsearch by `search` or `get` methods, you will get the following private
-attributes filled automatically:
+The models returned by `get`, `search` and the other methods have these private attributes:
 
 | Attribute       | Description                         |
 |-----------------|-------------------------------------|
 | `_id`           | The ES id of the document           |
 | `_routing`      | The routing value of the document   |
-| `_version`      | Version of the document             |
+| `_version`      | The version of the document         |
 | `_primary_term` | The primary term of the document    |
 | `_seq_no`       | The sequence number of the document |
 
@@ -795,75 +827,78 @@ attributes filled automatically:
 from esorm import ESModel
 
 
-# Here the model have automatically generated id
+# This model has no id field, so ElasticSearch generates the ids
 class User(ESModel):
     name: str
     age: int
 
 
 async def create_user():
-    # Create a new user
     user = User(name='John Doe', age=25)
     # Save the user to ElasticSearch
     new_user_id = await user.save()
     print(new_user_id)
 ```
 
-#### Refresh Control
+`save()` returns the id of the document. If a document with the same id already exists, it is replaced.
 
-You can control when changes become visible to search operations:
+#### Refresh control
+
+ElasticSearch makes the changes visible to searches when the index is refreshed. `save()`, `delete()` and
+`ESBulk` have a `refresh` parameter to control this:
 
 ```python
-# Default: No refresh - fastest, changes visible after refresh_interval
+# Default: no refresh, the change is visible after the next periodic refresh (refresh_interval)
 await user.save()
 
-# Immediate refresh - changes immediately visible to search
+# Refresh immediately, the change is visible when save() returns
 await user.save(refresh=True)
 
-# Wait for next refresh cycle - waits for the scheduled refresh_interval
-await user.save(wait_for=True)
-
-# Alternative: ES API compatible syntax (same as wait_for=True)
+# Wait for the next periodic refresh, the change is visible when save() returns
 await user.save(refresh="wait_for")
 ```
 
-**Performance Considerations:**
-- **Default** (`refresh=False`, `wait_for=False`): Best performance. Changes become visible after the index's `refresh_interval` (default 1 second).
-- **`refresh=True`**: Forces an immediate refresh. Use for testing or when immediate visibility is critical. Can impact performance under heavy load.
-- **`wait_for=True`**: Waits for the next scheduled refresh. Good balance between consistency and performance.
-- **`refresh="wait_for"`**: Same as `wait_for=True`, provided for ElasticSearch API compatibility.
+- **No refresh** (default): the fastest. The change is visible after the `refresh_interval` of the index
+  (1 second by default).
+- **`refresh=True`**: forces a refresh. It is useful in tests, but it can slow down the cluster under heavy load.
+- **`refresh="wait_for"`**: doesn't force a refresh, it waits for the next one. It is a good balance between
+  visibility and performance.
 
-**Note:** If both `refresh` and `wait_for` are specified, `refresh` takes priority.
+`wait_for=True` is the old (deprecated) form of `refresh="wait_for"`. If both are given, `refresh` wins.
 
 <a id="crud-read"></a>
 ### CRUD: Read
 
 ```python
-from esorm import ESModel
+from esorm import ESModel, NotFoundError
 
 
-# Here the model have automatically generated id
 class User(ESModel):
     name: str
     age: int
 
 
 async def get_user(user_id: str):
-    user = await User.get(user_id)
+    try:
+        user = await User.get(user_id)
+    except NotFoundError:
+        print('No such user')
+        return
     print(user.name)
 ```
+
+`get()` raises `esorm.NotFoundError` if the document doesn't exist. `await user.reload()` loads the current
+version of a model from ElasticSearch.
 
 <a id="crud-update"></a>
 ### CRUD: Update
 
-On update race conditions are checked automatically (with the help of _primary_term and _seq_no fields).
-This way an optimistic locking mechanism is implemented.
+Load the document, change it, and save it:
 
 ```python
 from esorm import ESModel
 
 
-# Here the model have automatically generated id
 class User(ESModel):
     name: str
     age: int
@@ -875,6 +910,10 @@ async def update_user(user_id: str):
     await user.save()
 ```
 
+If the document was changed by someone else after you loaded it, `save()` raises a conflict error instead of
+overwriting the other change. ESORM checks this with the `_primary_term` and `_seq_no` of the document (optimistic
+concurrency control), see [Optimistic concurrency control](docs/advanced.md#optimistic-concurrency-control).
+
 <a id="crud-delete"></a>
 ### CRUD: Delete
 
@@ -882,7 +921,6 @@ async def update_user(user_id: str):
 from esorm import ESModel
 
 
-# Here the model have automatically generated id
 class User(ESModel):
     name: str
     age: int
@@ -893,20 +931,20 @@ async def delete_user(user_id: str):
     await user.delete()
 ```
 
+`delete()` raises `esorm.NotFoundError` if the document doesn't exist, and it has the same `refresh` parameter as
+`save()`.
+
 <a id="bulk-operations"></a>
 ### Bulk operations
 
-Bulk operations could be much faster than single operations, if you have lot of documents to
-create, update or delete.
-
-You can use context for bulk operations:
+If you create, update or delete many documents, bulk operations are much faster than single operations, because
+they send all the changes in one request:
 
 ```python
 from typing import List
 from esorm import ESModel, ESBulk
 
 
-# Here the model have automatically generated id
 class User(ESModel):
     name: str
     age: int
@@ -914,49 +952,47 @@ class User(ESModel):
 
 async def bulk_create_users():
     async with ESBulk() as bulk:
-        # Creating or modifiying models
+        # Create or modify models
         for i in range(10):
             user = User(name=f'User {i}', age=i)
             await bulk.save(user)
 
 
 async def bulk_delete_users(users: List[User]):
-    async with ESBulk(wait_for=True) as bulk:  # Wait for scheduled refresh
-        # Deleting models
+    async with ESBulk(refresh="wait_for") as bulk:  # Wait for the next refresh
         for user in users:
             await bulk.delete(user)
 
 
 async def bulk_create_users_immediate():
-    async with ESBulk(refresh=True) as bulk:  # Force immediate refresh
+    async with ESBulk(refresh=True) as bulk:  # Refresh immediately
         for i in range(10):
             user = User(name=f'User {i}', age=i)
             await bulk.save(user)
 ```
 
-**Refresh Control for Bulk Operations:**
-- **`wait_for=True`**: Waits for the next scheduled refresh after bulk operations complete. Good balance between consistency and performance.
-- **`refresh=True`**: Forces an immediate refresh after bulk operations. Use for testing or when immediate visibility is critical.
-- **`refresh="wait_for"`**: Same as `wait_for=True`, ES API compatible syntax.
-- **Default** (no parameters): Best performance, changes visible after the index's `refresh_interval`.
+The operations are collected in the `async with` block, and they are sent when the block ends. If there is an
+exception in the block, nothing is sent. `ESBulk` has the same `refresh` parameter as `save()`, see
+[Refresh control](#crud-create).
 
-<a id="search"></a>
+If some operations fail, `esorm.error.BulkError` is raised after the request. Its `failed_operations` attribute
+has the details and the model of every failed operation, the other operations are done.
+
+<a id="searching"></a>
 ### Search
 
 <a id="general-search"></a>
 #### General search
 
-You can search for documents using `search` method, where an ES query can be specified as a dictionary.
-You can use `res_dict=True` argument to get the result as a dictionary instead of a list. The key will be the
-`id` of the document: `await User.search(query, res_dict=True)`.
+The `search` method searches with an ES query, given as a dict. It returns a list of models. With `res_dict=True`
+you get a dict instead, where the keys are the ids of the documents: `await User.search(query, res_dict=True)`.
 
-If you only need one result, you can use `search_one` method.
+If you need only one result, use `search_one`, it returns a model or `None`.
 
 ```python
 from esorm import ESModel
 
 
-# Here the model have automatically generated id
 class User(ESModel):
     name: str
     age: int
@@ -982,7 +1018,7 @@ async def search_users():
 
 
 async def search_one_user():
-    # Search a user named John Doe
+    # Search for a user named John Doe
     user = await User.search_one(
         query={
             'bool': {
@@ -1000,13 +1036,16 @@ async def search_one_user():
         print(user.name)
 ```
 
-Queries are type checked, because they are annotated as `TypedDict`s. You can use IDE autocompletion and type checking.
-If you store a query in a variable, annotate it with `ESQuery`, see [Type checking](#type-checking).
+`search` has `page_size`, `page` and `sort` parameters too, see [Pagination and sorting](#pagination-and-sorting).
+Other keyword arguments are passed to the search API of ElasticSearch.
+
+The queries are type checked, because they are `TypedDict`s, so you get IDE autocompletion and type checking. If
+you store a query in a variable, annotate it with `ESQuery`, see [Type checking](#type-checking).
 
 <a id="query-builder-intro"></a>
 #### Query builder
 
-Instead of nested dicts, queries can be built from classes too. The query builder produces exactly the same query
+Instead of nested dicts, you can build queries from classes too. The query builder produces exactly the same query
 dict, so the two can be mixed. Compound queries can be built with parameters, or with `with` blocks: the query
 clauses created inside a block are added to it:
 
@@ -1026,8 +1065,8 @@ with Bool() as q:
 #          must_not=[Exists('deleted_at')])
 ```
 
-The search methods accept the builder queries directly: `users = await User.search(q)`, and `q.to_query()` returns
-the query dict:
+The search methods accept the builder queries directly (`users = await User.search(q)`), and `q.to_query()`
+returns the query dict:
 
 ```json
 {
@@ -1040,35 +1079,37 @@ the query dict:
 ```
 
 Queries can be combined with operators too: `(Term('tag', 'a') | Term('tag', 'b')) & ~Exists('deleted_at')`.
-See the [Query builder](docs/query_builder.md#query-builder) chapter for all the details.
+The [Query builder](docs/query_builder.md#query-builder) chapter has all the details.
 
 <a id="search-with-field-value-terms-dictionary-search"></a>
 #### Search with field value terms (dictionary search)
 
-You can search for documents using `search_by_fields` method, where you can specify a field and a value.
-It also has a `res_dict` argument and `search_one_by_fields` variant.
+`search_by_fields` searches for documents whose fields have the given values. Every field must match: it is a
+`bool` query of `match` queries with `operator: and`, so on `text` fields all the words must be in the field. It
+has the `res_dict` parameter too, and a `search_one_by_fields` variant.
 
 ```python
 from esorm import ESModel
 
 
-# Here the model have automatically generated id
 class User(ESModel):
     name: str
     age: int
 
 
 async def search_users():
-    # Search users age is 18
+    # Search for the users who are 18
     users = await User.search_by_fields({'age': 18})
     for user in users:
         print(user.name)
 ```
 
+`User.all()` returns all documents (the first 10 without `page_size`, like every search).
+
 <a id="count"></a>
 #### Count
 
-You can count the number of documents in the index with the `count` method:
+The `count` method counts the documents of the index, or the documents which match a query:
 
 ```python
 from esorm import ESModel
@@ -1090,50 +1131,31 @@ async def count_users_by_age():
 ```
 
 <a id="vector-search"></a>
-#### Vector Search
+#### Vector search
 
-ESORM supports Elasticsearch's vector search capabilities with the `dense_vector` type, enabling semantic search and similarity operations.
+With [dense_vector](#dense_vector) fields you can search for similar vectors (semantic search). The vectors are
+created by an embedding model, which is not part of ESORM.
 
-### Defining Vector Fields
+##### kNN search
 
-To define a vector field, use the `DenseVectorField` function:
-
-```python
-from esorm import ESModel
-from esorm.fields import dense_vector, DenseVectorField
-
-class Document(ESModel):
-    id: str
-    content: str
-    embedding: dense_vector = DenseVectorField(
-        ...,  # required field
-        dims=384,  # dimension of the vector
-        similarity="cosine"  # similarity metric: 'cosine', 'dot_product', or 'l2'
-    )
-```
-
-### Vector Search with kNN
-
-To perform vector search using k-nearest neighbors (kNN):
+The `knn` query finds the `k` nearest neighbors of the query vector:
 
 ```python
-# Vector search using kNN
 results = await Document.search({
     "knn": {
         "field": "embedding",
-        "query_vector": [0.1, 0.2, ...],  # your query vector
-        "k": 10,  # number of neighbors to return
-        "num_candidates": 100  # number of candidates to consider
+        "query_vector": [0.1, 0.2, ...],  # The query vector
+        "k": 10,  # The number of neighbors to return
+        "num_candidates": 100  # The number of candidates to consider on each shard
     }
 })
 ```
 
-### Hybrid Search
+##### Hybrid search
 
-You can combine vector search with text search for hybrid search:
+You can combine vector search with full text search:
 
 ```python
-# Hybrid search - combining text match with vector similarity
 results = await Document.search({
     "bool": {
         "must": [
@@ -1156,30 +1178,31 @@ results = await Document.search({
 })
 ```
 
+Here the documents must match the text query, and the ones with similar vectors get a higher score. The query
+builder has a `Knn` class too, see [Vector queries](docs/query_builder.md#builder-vector-queries).
+
 <a id="aggregations"></a>
 ### Aggregations
 
-You can use `aggregate` method to get aggregations.
-You can specify an ES aggregation query as a dictionary. It also accepts normal ES queries,
-to be able to fiter which documents you want to aggregate.
-Both the aggs parameter and the query parameter are type checked, because they are annotated as `TypedDict`s.
-You can use IDE autocompletion and type checking. If you store them in variables, annotate them with `ESAggs` and
-`ESQuery` (see [Type checking](#type-checking)). Sub-aggregations can be added with the `aggs` key, their results
-are accessible by their names.
+The `aggregate` method runs aggregations, given as a dict. Its `query` parameter selects which documents are
+aggregated. Both are `TypedDict`s, so they are type checked, and IDEs can autocomplete them. If you store them in
+variables, annotate them with `ESAggs` and `ESQuery` (see [Type checking](#type-checking)). Sub-aggregations can be
+added with the `aggs` key, their results are in the buckets by their names.
 
 ```python
 from esorm import ESModel
 from esorm.aggs import ESAggs
 from esorm.query import ESQuery
 
-# Here the model have automatically generated id
+
 class User(ESModel):
     name: str
     age: int
     country: str
 
+
 async def aggregate_avg():
-    # Get average age of users
+    # The average age of the users
     aggs_def: ESAggs = {
         'avg_age': {
             'avg': {
@@ -1190,8 +1213,9 @@ async def aggregate_avg():
     aggs = await User.aggregate(aggs_def)
     print(aggs['avg_age']['value'])
 
-async def aggregate_avg_by_country(country = 'Hungary'):
-    # Get average age of users by country
+
+async def aggregate_avg_by_country(country='Hungary'):
+    # The average age of the users of a country
     aggs_def: ESAggs = {
         'avg_age': {
             'avg': {
@@ -1215,7 +1239,7 @@ async def aggregate_avg_by_country(country = 'Hungary'):
 
 
 async def aggregate_terms():
-    # Get number of users by country
+    # The number of users by country
     aggs_def: ESAggs = {
         'countries': {
             'terms': {
@@ -1229,7 +1253,7 @@ async def aggregate_terms():
 
 
 async def aggregate_avg_age_by_country():
-    # Get the average age of users by country, using a sub-aggregation
+    # The average age of the users by country, with a sub-aggregation
     aggs = await User.aggregate({
         'countries': {
             'terms': {'field': 'country'},
@@ -1245,84 +1269,97 @@ async def aggregate_avg_age_by_country():
 <a id="pagination-and-sorting"></a>
 ### Pagination and sorting
 
-You can use `Pagination` and `Sort` classes to decorate your models. They simply wrap your models
-and add pagination and sorting functionality to them.
+The search methods have `page`, `page_size` and `sort` parameters:
+
+```python
+users = await User.search_by_fields({'age': 18}, page=2, page_size=20, sort='name')
+```
+
+Without `page_size` ElasticSearch returns the first 10 results.
+
+The `Pagination` and `Sort` classes do the same, but they wrap the model, so you can set them in one place, and
+use the wrapped model as the original one. This is useful in APIs (see
+[FastAPI pagination](docs/advanced.md#fastapi-pagination)).
 
 #### Pagination
 
-You can add a callback parameter to the `Pagination` class which will be invoked after the search with
-the total number of documents found.
+`Pagination` can call a callback after the search with the total number of matching documents:
 
 ```python
-from esorm.model import ESModel, Pagination
+from esorm import ESModel, Pagination
 
 
 class User(ESModel):
-    id: int  # This will be used as the document _id in the index
+    id: int  # This is the document _id
     name: str
     age: int
 
 
-async def get_users(page = 1, page_size = 10):
+async def get_users(page=1, page_size=10):
 
     async def pagination_callback(total: int):
-        # You may set a header value or something else here
+        # E.g. set a response header here
         print(f'Total users: {total}')
 
-    # 1st create the decorator itself
+    # Create the pagination
     pagination = Pagination(page=page, page_size=page_size, callback=pagination_callback)
 
-    # Then decorate your model
+    # Then wrap your model with it
     res = await pagination(User).search_by_fields({'age': 18})
 
-    # Here the result has maximum 10 items
+    # The result has at most 10 items
     return res
 ```
 
+The callback must be an async function.
+
 #### Sorting
 
-It is similar to pagination:
+`Sort` works the same way:
 
 ```python
-from esorm.model import ESModel, Sort
+from esorm import ESModel, Sort
 
 
 class User(ESModel):
-    id: int  # This will be used as the document _id in the index
+    id: int  # This is the document _id
     name: str
     age: int
 
 
 async def get_users():
-    # 1st create the decorator itself
+    # Create the sort
     sort = Sort(sort=[
         {'age': {'order': 'desc'}},
         {'name': {'order': 'asc'}}
     ])
 
-    # Then decorate your model
+    # Then wrap your model with it
     res = await sort(User).search_by_fields({'age': 18})
 
-    # Here the result is sorted by age descending, then by name ascending
+    # The result is sorted by age descending, then by name ascending
     return res
+
 
 async def get_user_sorted_by_name():
-    # You can also use this simplified syntax
+    # A field name sorts in ascending order
     sort = Sort(sort='name')
 
-    # Then decorate your model
     res = await sort(User).all()
 
-    # Here the result is sorted by name ascending
+    # The result is sorted by name ascending
     return res
 ```
+
+`Pagination` and `Sort` can be used together: `sort(pagination(User))`. If no sort is given, the `default_sort` of
+the [model settings](#model-settings) is used.
 
 <a id="iterating-through-all-results"></a>
 ### Iterating through all results (scan)
 
-Pagination is for showing results to users, it can't go deeper than 10,000 results by default
-(`index.max_result_window`). To process all results of a query (e.g. export, reindex, batch jobs),
-use `scan()`, which can iterate through any number of documents efficiently:
+Pagination is for showing results to users, and it can't go deeper than 10,000 results by default
+(`index.max_result_window`). To process all results of a query (e.g. export, reindex, batch jobs), use `scan()`,
+which can iterate through any number of documents efficiently:
 
 ```python
 from esorm import ESModel
@@ -1343,31 +1380,29 @@ To process the documents in batches (e.g. with bulk operations), use `scan_batch
 ```python
 async def process_in_batches():
     async for users in User.scan_batches(batch_size=500):
-        # Here `users` is a list of maximum 500 models
+        # `users` is a list of at most 500 models
         print(len(users))
 ```
 
-It uses a point in time (PIT) with `search_after`, so the results are consistent: changes made during
-the iteration are not visible. Sorting, the `Sort` decorator, `_source` and shard routing work like
-in `search()`.
+It uses a point in time (PIT) with `search_after`, so the results are consistent: the changes made during the
+iteration are not visible. Sorting, the `Sort` decorator, `_source` and shard routing work as in `search()`.
 
-If the iteration may be stopped early (e.g. by `break`), wrap it in `contextlib.aclosing()` to close
-the point in time immediately. More details in
-[Iterating through large result sets](docs/advanced.md#iterating-through-large-result-sets).
+If the iteration may stop early (e.g. by `break`), wrap it in `contextlib.aclosing()` to close the point in time
+immediately. More details in [Iterating through large result sets](docs/advanced.md#iterating-through-large-result-sets).
 
 <a id="ide-support"></a>
-## 🖥 IDE Support and type checking
+## 🖥 IDE support and type checking
 
 ESORM has type hints everywhere (it is a [PEP 561](https://peps.python.org/pep-0561/) typed package), so IDEs can
 autocomplete and check the models, the queries, the aggregations and the results. The type hints are tested with
-[pyright](https://github.com/microsoft/pyright) (used by Pylance in VS Code / Cursor) and
-[mypy](https://mypy-lang.org/) in the CI (`tests/typecheck`): correct code must not have any warnings, and typical
-mistakes must be reported.
+[pyright](https://github.com/microsoft/pyright) (used by Pylance in VS Code and Cursor) and
+[mypy](https://mypy-lang.org/) in the CI (`tests/typecheck`): correct code must not produce any warnings, and the
+typical mistakes must be reported.
 
 <a id="type-checking"></a>
 ### Type checking of queries and aggregations
 
-Queries and aggregations are `TypedDict`s, so the keys are autocompleted, and typos, wrong value types and
+Queries and aggregations are `TypedDict`s, so their keys are autocompleted, and typos, wrong value types and
 missing required keys are reported:
 
 ```python
@@ -1391,13 +1426,13 @@ async def search():
     await User.search({'match': {'name': {'query': 'John Doe', 'operator': 'adn'}}})
 ```
 
-Every query clause has the same type: `ESQuery`. It is used for the whole query, and also for the clauses of
-compound queries (`bool`, `nested`, `function_score`, ...). An aggregation is an `ESAgg`, the aggregations
+Every query clause has the same type: `ESQuery`. It is the type of the whole query, and also of the clauses of
+compound queries (`bool`, `nested`, `function_score`, ...). An aggregation is an `ESAgg`, and the aggregations
 (and the sub-aggregations) are `ESAggs`.
 
-If you pass a query directly to a method, it is checked automatically. If you store it in a variable,
-annotate the variable, because type checkers infer an unannotated dict literal as a plain `dict`, and report that
-it is not an `ESQuery`:
+A query given directly to a method is checked automatically. If you store it in a variable, annotate the
+variable, because type checkers infer an unannotated dict literal as a plain `dict`, and they report that it is not
+an `ESQuery`:
 
 ```python
 from typing import List
@@ -1424,7 +1459,7 @@ async def avg_age():
 
 The results are typed too: `search()` returns a list of models (a dict of id - model pairs with `res_dict=True`),
 `search_one()` returns a model or `None`, and in the result of `aggregate()` the known keys (`value`, `buckets`,
-`key`, `doc_count`, ...) have their types, while any other key is the result of a sub-aggregation:
+`key`, `doc_count`, ...) have their own types, while every other key is the result of a sub-aggregation:
 
 ```python
 async def avg_age_by_country():
@@ -1443,74 +1478,71 @@ Some notes:
 - The clauses of a `bool` query must be lists (`'must': [{...}]`). ES accepts a single clause too, but PyCharm
   can't check a union of a dict and a list, so the type hints allow only lists. The same applies to the `filters`
   aggregation: only named filters (a dict) are allowed.
-- The `value` of the `avg`, `min` and `max` aggregations is `None` if there are no documents, so it is
+- The `value` of the `avg`, `min` and `max` aggregations is `None` if there are no documents, so its type is
   `Optional[float]`.
-- Buckets are typed as a list. With `keyed: True` (or with named filters in a `filters` aggregation) ES returns them
-  as a dict, use `typing.cast()` there.
-- ES allows only one query type in a query clause (`{'match': ..., 'term': ...}` is invalid), this is not checked,
+- Buckets are typed as a list. With `keyed: True` (or with named filters in a `filters` aggregation) ES returns
+  them as a dict, use `typing.cast()` there.
+- ES allows only one query type in a query clause (`{'match': ..., 'term': ...}` is invalid). This is not checked,
   use `bool` to combine them.
-- Rarely used queries and aggregations (e.g. span queries, `intervals`, `scripted_metric`) accept any dict.
-- The query and aggregation types can be used in pydantic models too, e.g. in a FastAPI request body.
+- The rarely used queries and aggregations (e.g. span queries, `intervals`, `scripted_metric`) accept any dict.
+- The query and aggregation types can be used in Pydantic models too, e.g. in a FastAPI request body.
 
 The classes of the [query builder](docs/query_builder.md#query-builder) are ordinary classes with typed parameters,
-so they are checked by every type checker, without the limitations of the `TypedDict` literals, see
-[Type checking](docs/query_builder.md#builder-type-checking) of the query builder.
+so every type checker checks them, without the limitations of the `TypedDict` literals. See
+[Type checking](docs/query_builder.md#builder-type-checking) in the query builder chapter.
 
 ### PyCharm
 
-This project is developed with [PyCharm](https://www.jetbrains.com/pycharm/) IDE. You can use the IDE
-autocompletion and type checking features. The type hints are designed to work with PyCharm's type checker too
-(tested with PyCharm 2026.2): correct queries and aggregations are not reported, and the typical mistakes are.
-Its limitations:
+ESORM is developed in [PyCharm](https://www.jetbrains.com/pycharm/), and the type hints are designed to work with
+PyCharm's type checker too (tested with PyCharm 2026.2): correct queries and aggregations are not reported, and the
+typical mistakes are. Its limitations:
 
 - It checks the clauses of `bool` queries to two levels of nesting (a `bool` query in a clause of a `bool` query),
   and the sub-aggregations to two levels. The clauses of the other compound queries (e.g. `nested`, `has_child`)
   are not checked. Pyright and mypy check every level.
-- If the query of `search()` is a dict literal, PyCharm can't tell if the result is a list or a dict
-  (`res_dict=True`), so it accepts the methods of both (because of a PyCharm bug). The models in the result are typed.
+- If the query of `search()` is a dict literal, PyCharm can't tell whether the result is a list or a dict
+  (`res_dict=True`), so it accepts the methods of both (this is a PyCharm bug). The models in the result are typed.
 
-Recommended Jetbrains Plugins:
-- [Pydantic](https://plugins.jetbrains.com/plugin/12861-pydantic): This plugin provides support for Pydantic models and type hints, helps a lot with autocompletion and type checking.
+The [Pydantic plugin](https://plugins.jetbrains.com/plugin/12861-pydantic) of PyCharm helps a lot with the
+autocompletion and type checking of Pydantic models.
 
 ### VS Code / Cursor
 
-In VS Code and Cursor you can use Pylance (or the pyright extension). Set the type checking mode to at least
-`basic` (`"python.analysis.typeCheckingMode": "standard"` is recommended), otherwise Pylance doesn't report type
-errors.
+In VS Code and Cursor use Pylance (or the pyright extension). Set the type checking mode to at least `basic`,
+otherwise Pylance doesn't report type errors. `"python.analysis.typeCheckingMode": "standard"` is recommended.
 
 <a id="testing"></a>
 ## 🧪 Testing
 
-Tests run automatically on GitHub Actions for every push and pull request, on all supported
-Python versions (3.10 - 3.14) against ElasticSearch 8.x, 9.x and OpenSearch 2.x, 3.x.
+The tests run on GitHub Actions for every push and pull request, on all supported Python versions (3.10 - 3.14),
+against ElasticSearch 8.x, 9.x and OpenSearch 2.x, 3.x.
 
-For local testing you can use the `tests.sh` in the root directory. It is a script to running
-tests on multiple python interpreters in virtual environments. At the top of the file you can specify
-which python interpreters you want to test. The ES and OpenSearch versions are specified in
-`tests/docker-compose.yml` file.
+For local testing there is a `tests.sh` script in the root directory. It runs the tests with more Python
+interpreters, in virtual environments. You can set the interpreters at the top of the file. The ES and OpenSearch
+versions are in `tests/docker-compose.yml`.
 
-The development dependencies are in the `dev` dependency group of `pyproject.toml`, you can install them with
-`uv sync` or `pip install -e . --group dev` (pip 25.1+).
+The development dependencies are in the `dev` dependency group of `pyproject.toml`, install them with `uv sync` or
+`pip install -e . --group dev` (pip 25.1+).
+
+If you already have a virtual environment, simply run `pytest`. The tests need Docker, they start the ES and
+OpenSearch containers automatically. By default all versions are tested, you can choose with the
+`ESORM_TEST_SERVICES` environment variable, e.g. `ESORM_TEST_SERVICES=es9x,os3x pytest`
+(available services: `es8x`, `es9x`, `os2x`, `os3x`).
 
 The type hints are tested with `python tests/typecheck/check.py` (pyright and mypy, no ES needed). The type checkers
-use stubs for the query and aggregation types (`esorm/query.pyi`, `esorm/aggs.pyi`), they are generated by
-`python tools/generate_stubs.py`, run it after the types in `esorm/query.py` or `esorm/aggs.py` are changed.
-
-If you already have a virtual environment, simply use `pytest` to run the tests. Docker is needed, the tests
-start the ES and OpenSearch containers automatically. By default all versions are tested, you can limit them with
-the `ESORM_TEST_SERVICES` environment variable, e.g. `ESORM_TEST_SERVICES=es9x,os3x pytest`
-(available services: `es8x`, `es9x`, `os2x`, `os3x`).
+use stubs for the query and aggregation types (`esorm/query.pyi`, `esorm/aggs.pyi`). They are generated by
+`python tools/generate_stubs.py`, run it after you change the types in `esorm/query.py` or `esorm/aggs.py`.
 
 <a id="license"></a>
 ## 🛡 License
 
-This project is licensed under the terms of the [Mozilla Public License 2.0](https://www.mozilla.org/en-US/MPL/2.0/) (
-MPL 2.0) license.
+This project is licensed under the terms of the [Mozilla Public License 2.0](https://www.mozilla.org/en-US/MPL/2.0/)
+(MPL 2.0).
 
 <a id="citation"></a>
 ## 📃 Citation
 
-If you use this project in your research, please cite it using the following BibTeX entry:
+If you use this project in your research, please cite it with the following BibTeX entry:
 
 ```bibtex
 @misc{esorm,

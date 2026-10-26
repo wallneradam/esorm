@@ -74,8 +74,8 @@ instance/
 
 # Sphinx documentation
 docs/_build/
-# Changelog.rst is generated
-docs/changelog.rst
+# The changelog is generated
+docs/changelog.md
 
 # PyBuilder
 .pybuilder/

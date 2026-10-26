@@ -566,7 +566,7 @@ def DenseVectorField(
         # ESORM args
         index: bool = True,
         dims: int,
-        similarity: Literal['cosine', 'dot_product', 'l2'] = 'cosine',
+        similarity: Literal['cosine', 'dot_product', 'l2_norm', 'max_inner_product'] = 'cosine',
         fields: Optional[Dict[str, Dict[str, Any]]] = None,
         # Pydantic args
         alias: Optional[str] = None,
@@ -586,7 +586,7 @@ def DenseVectorField(
         # ESORM args
         index: bool = True,
         dims: int,
-        similarity: Literal['cosine', 'dot_product', 'l2'] = 'cosine',
+        similarity: Literal['cosine', 'dot_product', 'l2_norm', 'max_inner_product'] = 'cosine',
         fields: Optional[Dict[str, Dict[str, Any]]] = None,
         # Pydantic args
         alias: Optional[str] = None,
@@ -605,7 +605,7 @@ def DenseVectorField(
         # ESORM args
         index: bool = True,
         dims: int,
-        similarity: Literal['cosine', 'dot_product', 'l2'] = 'cosine',
+        similarity: Literal['cosine', 'dot_product', 'l2_norm', 'max_inner_product'] = 'cosine',
         fields: Optional[Dict[str, Dict[str, Any]]] = None,
         # Pydantic args
         alias: Optional[str] = None,
@@ -621,7 +621,8 @@ def DenseVectorField(
     :param default: since this is replacing the field's default, its first argument is used
         to set the default, use ellipsis (``...``) or leave it out to indicate the field is required
     :param dims: dimensions for dense_vector fields, required
-    :param similarity: similarity metric for dense_vector fields ('cosine', 'dot_product', 'l2')
+    :param similarity: similarity metric for dense_vector fields
+        ('cosine', 'dot_product', 'l2_norm', 'max_inner_product'), the old 'l2' value is accepted as 'l2_norm'
     :param index: if this field should be indexed or not
     :param fields: Elasticsearch subfields mapping
     :param alias: the public name of the field
@@ -640,7 +641,8 @@ def DenseVectorField(
     if dims is not None:
         extra['dims'] = dims
     if similarity is not None:
-        extra['similarity'] = similarity
+        # 'l2' was accepted earlier, but ElasticSearch only knows 'l2_norm'
+        extra['similarity'] = 'l2_norm' if similarity == 'l2' else similarity
     if fields is not None:
         extra['fields'] = fields
 

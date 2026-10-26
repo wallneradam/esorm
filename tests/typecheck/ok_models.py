@@ -32,6 +32,8 @@ class User(ESModelTimestamp):
     full_name: keyword = Field(alias='fullName')
     tags: List[str] = Field([], index=False)
     embedding: dense_vector = DenseVectorField(..., dims=3, similarity="cosine")
+    embedding_l2: Optional[dense_vector] = DenseVectorField(None, dims=3, similarity="l2_norm")
+    embedding_mip: Optional[dense_vector] = DenseVectorField(None, dims=3, similarity="max_inner_product")
     address: Optional[Address] = None
     friend_ids: List[str] = []
     logged_in_at: Optional[datetime] = None

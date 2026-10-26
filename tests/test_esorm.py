@@ -1351,6 +1351,38 @@ class TestBaseTests:
         assert len(results) == 1
         assert results[0].f_dense_vector == [1.0, 2.0, 3.0]
 
+    async def test_dense_vector_similarity(self, es, esorm):
+        """
+        Test the similarity metrics of the dense vector fields in the created mappings
+        """
+        from esorm.fields import dense_vector
+
+        class DenseVectorSimilarityModel(esorm.ESModel):
+            f_cosine: dense_vector = esorm.DenseVectorField(..., dims=3, similarity='cosine')
+            f_dot_product: dense_vector = esorm.DenseVectorField(..., dims=3, similarity='dot_product')
+            f_l2_norm: dense_vector = esorm.DenseVectorField(..., dims=3, similarity='l2_norm')
+            f_max_inner_product: dense_vector = esorm.DenseVectorField(..., dims=3, similarity='max_inner_product')
+            # The old 'l2' value is still accepted, it is converted to 'l2_norm'
+            f_l2: dense_vector = esorm.DenseVectorField(..., dims=3, similarity='l2')  # type: ignore
+
+        await esorm.setup_mappings()
+
+        index = DenseVectorSimilarityModel.ESConfig.index
+        properties = (await es.indices.get_mapping(index=index))[index]['mappings']['properties']
+        if esorm.is_opensearch():
+            expected = {'f_cosine': 'cosinesimil', 'f_dot_product': 'innerproduct', 'f_l2_norm': 'l2',
+                        'f_max_inner_product': 'innerproduct', 'f_l2': 'l2'}
+            for name, space_type in expected.items():
+                prop = properties[name]
+                assert prop['type'] == 'knn_vector'
+                assert prop.get('space_type', prop.get('method', {}).get('space_type')) == space_type
+        else:
+            expected = {'f_cosine': 'cosine', 'f_dot_product': 'dot_product', 'f_l2_norm': 'l2_norm',
+                        'f_max_inner_product': 'max_inner_product', 'f_l2': 'l2_norm'}
+            for name, similarity in expected.items():
+                assert properties[name]['type'] == 'dense_vector'
+                assert properties[name]['similarity'] == similarity
+
     async def test_count(self, es, esorm):
         """
         Test count
