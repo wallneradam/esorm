@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pyesorm"
-version = "0.8.0"
+version = "0.8.1"
 description = "Python ElasticSearch and OpenSearch ORM based on Pydantic"
 readme = "README.md"
 authors = [{ name = "Adam Wallner", email = "adam.wallner@gmail.com" }]
