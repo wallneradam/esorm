@@ -2,6 +2,7 @@ name: Release
 
 # Publishing a GitHub Release (tag: vX.Y.Z) runs the tests, builds the package
 # and uploads it to PyPI using Trusted Publishing (no API token needed).
+# Afterwards the patch version on the default branch is bumped (X.Y.Z → X.Y.Z+1).
 
 on:
   release:
@@ -68,3 +69,50 @@ jobs:
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
+
+  bump:
+    name: Bump patch version
+    needs: publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write  # Push the version bump commit
+
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+
+      - name: Bump the patch version in pyproject.toml (X.Y.Z → X.Y.Z+1)
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          VERSION=$(python3 - <<'PY'
+          import os
+          import re
+          from pathlib import Path
+
+          path = Path("pyproject.toml")
+          text = path.read_text()
+          pattern = re.compile(r'^version = "(\d+)\.(\d+)\.(\d+)"$', re.MULTILINE)
+          match = pattern.search(text)
+          if not match:
+              raise SystemExit("Version (X.Y.Z) not found in pyproject.toml")
+          # Only bump if the default branch still holds the released version
+          if ".".join(match.groups()) != os.environ["TAG"].removeprefix("v"):
+              print("")
+              raise SystemExit(0)
+          major, minor, patch = match.groups()
+          version = f"{major}.{minor}.{int(patch) + 1}"
+          path.write_text(pattern.sub(f'version = "{version}"', text, count=1))
+          print(version)
+          PY
+          )
+          if [ -z "$VERSION" ]; then
+            echo "pyproject.toml on the default branch is not $TAG anymore, nothing to bump"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "Bump version to $VERSION"
+          git push origin HEAD
