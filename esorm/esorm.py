@@ -1,7 +1,7 @@
 """
 ElasticSearch ORM main module
 """
-from typing import Optional, cast, Union, List, Mapping, Type, Literal, Dict, Any
+from typing import Optional, cast, Union, Mapping, Sequence, Type, Literal, Dict, Any
 
 import asyncio
 import importlib.util
@@ -151,7 +151,7 @@ def _opensearch_kwargs(kwargs: Dict[str, Any]) -> Dict[str, Any]:
     return kwargs
 
 
-async def connect(hosts: Union[str, Union[List[Union[str, Mapping[str, Union[str, int]], NodeConfig]], None]],
+async def connect(hosts: Union[str, Sequence[Union[str, Mapping[str, Union[str, int]], NodeConfig]], None],
                   *args: Any, wait: bool = False, backend: Optional[Backend] = None,
                   **kwargs: Any) -> Optional[AsyncElasticsearch]:
     """
@@ -171,6 +171,10 @@ async def connect(hosts: Union[str, Union[List[Union[str, Mapping[str, Union[str
     :return: AsyncElasticsearch client instance (or the compatible AsyncOpenSearch client instance)
     """
     global _backend
+
+    # The clients expect a list
+    if hosts is not None and not isinstance(hosts, str):
+        hosts = list(hosts)
 
     try:
         client = None

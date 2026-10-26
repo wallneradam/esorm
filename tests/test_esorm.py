@@ -590,6 +590,16 @@ class TestBaseTests:
         await doc.reload()
         assert doc.f_int == 13
 
+        # Called with keyword arguments only (there is no positional argument to reload)
+        await asyncio.gather(
+            update_doc(doc_id=doc._id),
+            update_doc(doc_id=doc._id),
+            update_doc(doc_id=doc._id),
+        )
+
+        await doc.reload()
+        assert doc.f_int == 16
+
         doc = model_timestamp(f_str="occ_retry", f_int=10)
         await doc.save()
 
