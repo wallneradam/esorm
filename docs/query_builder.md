@@ -3,8 +3,8 @@
 
 The query builder (`esorm.builder`) builds ElasticSearch queries from classes instead of nested dicts. It produces
 **exactly the same query dict** (`ESQuery`) as you would write by hand. The search methods of the models accept the
-builder queries directly, and `to_query()` returns the query dict for everything else. The builder doesn't run
-anything, there is no `await` in it: it only builds the query.
+builder queries directly, and `to_query()` returns the query dict for everything else. The builder only builds the
+query, it doesn't send anything to ElasticSearch, so there is no `await` in it.
 
 - [Why a query builder](#why-a-query-builder)
 - [Quick start](#builder-quick-start)
@@ -30,8 +30,8 @@ anything, there is no `await` in it: it only builds the query.
 <a id="why-a-query-builder"></a>
 ## Why a query builder
 
-Query dicts are simple, but real queries quickly become deep: lists in dicts in lists, and every clause needs its
-own braces. This is a query for active adult users named John, who are not deleted:
+Query dicts are simple, but real queries quickly get deep: lists in dicts in lists, and every clause needs its
+own braces. This query finds the active adult users named John who are not deleted:
 
 ```python
 from esorm.query import ESQuery
@@ -76,16 +76,13 @@ with Bool() as q:
 }
 ```
 
-(The JSON blocks in this chapter show the result of `q.to_query()`, they are checked by the tests.)
+(The JSON blocks in this chapter show the result of `q.to_query()`. The tests check that they are correct.)
 
-What you get:
-
-- **Less noise**: no braces and lists, the nesting of the `with` blocks follows the nesting of the query.
-- **Every parameter is checked**: the clauses are ordinary classes with typed parameters, so your IDE autocompletes
-  them, and typos, wrong value types and missing arguments are reported by the type checkers.
-- **Building queries in code is easy**: clauses can be appended conditionally, combined with `&`, `|` and `~`, and
-  reused.
-- **Nothing to migrate**: the result is the same query dict, builder queries and query dicts can be mixed freely.
+There are fewer braces and lists, and the nesting of the `with` blocks follows the nesting of the query. The
+clauses are ordinary classes with typed parameters, so your IDE autocompletes them, and the type checkers report
+typos, wrong value types and missing arguments. In code, clauses can be added conditionally, combined with `&`, `|`
+and `~`, and reused. And there is nothing to migrate: the result is the same query dict, so builder queries and
+query dicts can be mixed freely.
 
 <a id="builder-quick-start"></a>
 ## Quick start
@@ -117,7 +114,7 @@ async def search_users():
 
 1. Import the query clauses from `esorm.builder`.
 2. Build the query with parameters, `with` blocks or operators.
-3. Give it to `search()`, `count()` or any other method of the model. If you need the query dict itself, call
+3. Pass it to `search()`, `count()` or any other method of the model. If you need the query dict itself, call
    `to_query()`.
 
 <a id="two-ways-to-build-a-query"></a>
@@ -126,7 +123,7 @@ async def search_users():
 <a id="builder-parameters"></a>
 ### Parameters
 
-Every clause can be given as a parameter, like in a dict, just with classes:
+Every clause can be given as a parameter, as in a dict, but with classes:
 
 ```python
 from esorm.builder import Bool, Match, Range, Term, Exists
@@ -148,7 +145,7 @@ q = Bool(
 }
 ```
 
-This is the best for short queries, which fit in one or two lines:
+Parameters are best for short queries that fit in one or two lines:
 
 ```python
 from esorm.builder import Bool, Term, Range
@@ -163,8 +160,8 @@ q = Bool(filter=[Term('country', 'HU'), Range('age', gte=18)])
 <a id="builder-with-blocks"></a>
 ### `with` blocks
 
-A compound query (and its clause lists, e.g. `q.must`) can be used in a `with` block. Every query clause which is
-created inside the block is added to it, you don't have to collect them:
+A compound query (and its clause lists, e.g. `q.must`) can be used in a `with` block. Every query clause created
+inside the block is added to it, so you don't have to collect them yourself:
 
 ```python
 from esorm.builder import Bool, Match, Range, Term, Exists
@@ -210,7 +207,7 @@ with Bool() as q:
 }
 ```
 
-The `with` blocks are the best for big queries with deep nesting, because the indentation shows the structure:
+`with` blocks are best for big, deeply nested queries, because the indentation shows the structure:
 
 ```python
 from esorm.builder import Bool, Match, Term, Range, Nested
@@ -256,8 +253,8 @@ as attributes, also inside the block (`q.minimum_should_match = 1`).
 <a id="builder-mixing-styles"></a>
 ### Mixing them
 
-The two styles can be mixed in any way. A clause given as a parameter inside a `with` block is not added to the block
-twice: it belongs to the query it was given to.
+The two styles can be mixed freely. A clause given as a parameter inside a `with` block is not added to the block
+too: it belongs only to the query it was given to.
 
 ```python
 from esorm.builder import Bool, Term, Range, Match
@@ -284,10 +281,10 @@ with Bool() as q:
 <a id="how-with-blocks-work"></a>
 ## How `with` blocks work
 
-The rules are simple, but it is worth knowing them exactly:
+The exact rules:
 
 1. **Every builder query created inside a `with` block is added to the innermost block**, in the order of creation.
-   It doesn't matter how it is created: a statement, a variable assignment or a function call that creates
+   It doesn't matter how it is created: a bare expression, a variable assignment, or a function that creates
    clauses all add them.
 
 2. **Each compound query has a default place** for the clauses created directly in its block:
@@ -303,13 +300,13 @@ The rules are simple, but it is worth knowing them exactly:
    | `with DisMax() as q:` | `q.queries` |
    | `with Knn(...) as q:` | `q.filter` |
 
-   The single query places (e.g. the `query` of `Nested`) accept more clauses too: all of them must match, so they
-   are combined into a `bool.must` query.
+   The places for a single query (e.g. the `query` of `Nested`) accept more clauses too. All of them must match,
+   so they are combined into a `bool.must` query.
 
 3. **A clause given to another query explicitly is moved there**: if you pass it as a parameter, combine it with an
    operator, or `append()` it to a clause list inside the block, it is removed from the block. So nothing is
-   duplicated, and the order is kept: the inner clauses are created first, then the outer query takes them, and only
-   the outer query stays in the block.
+   duplicated, and the order is kept: the inner clauses are created first, then the outer query takes them, and
+   only the outer query stays in the block.
 
    ```python
    from esorm.builder import Bool, Term
@@ -339,11 +336,11 @@ The rules are simple, but it is worth knowing them exactly:
    }
    ```
 
-4. **When the block ends, its clauses are final.** Using a clause in another query after the block doesn't remove it
-   from the block, the clause is simply used in both places.
+4. **When the block ends, its clauses are final.** If you use a clause in another query after the block, it is not
+   removed from the block, it is simply used in both places.
 
 5. **Query dicts are not collected**, only builder queries are (a dict doesn't know where it was created). Wrap a
-   query dict into [`Raw`](#builder-any-other-query), or `append()` it:
+   query dict in [`Raw`](#builder-any-other-query), or `append()` it:
 
    ```python
    from esorm.builder import Bool, Raw
@@ -371,15 +368,15 @@ The rules are simple, but it is worth knowing them exactly:
    inside a block (e.g. by `asyncio.create_task()`) inherits the context variables, but its clauses are not added to
    the block of its parent.
 
-8. **These are ordinary (synchronous) `with` blocks**, use `with`, not `async with`. Entering and leaving a block
-   doesn't do anything with ElasticSearch.
+8. **These are ordinary (synchronous) `with` blocks**: use `with`, not `async with`. Entering and leaving a block
+   doesn't communicate with ElasticSearch.
 
-Outside of `with` blocks a created clause is not added anywhere, it is just an object, like any other.
+Outside of `with` blocks a new clause is not added anywhere, it is just an object like any other.
 
 <a id="combining-queries-with-operators"></a>
 ## Combining queries with operators
 
-Queries can be combined with the `&`, `|` and `~` operators, the result is a `Bool` query:
+Queries can be combined with the `&`, `|` and `~` operators. The result is a `Bool` query:
 
 | Operator | Meaning | Result |
 |---|---|---|
@@ -411,7 +408,7 @@ q = (Term('tag', 'python') | Term('tag', 'es')) & ~Exists('deleted_at')
 
 Chains are flattened: `a & b & c` is one bool query with 3 must clauses, not nested bool queries. A bool query is
 flattened only if it has nothing else (no other clauses and no parameters), so the meaning never changes. An empty
-`Bool()` is not dropped from `|`, because it matches every document:
+`Bool()` is kept in `|`, because it matches every document:
 
 ```python
 from esorm.builder import Term
@@ -425,17 +422,17 @@ q = Term('a', 1) & Term('b', 2) & Term('c', 3)
 
 Some details:
 
-- `|` always sets `minimum_should_match: 1`. A bool query with only should clauses requires one match anyway, but if
-  you add must or filter clauses to it later, the should clauses would become optional without it.
+- `|` always sets `minimum_should_match: 1`. A bool query with only should clauses requires one match anyway, but
+  without it, the should clauses would become optional if you added must or filter clauses later.
 - The precedence is the same as in Python: `~` first, then `&`, then `|`. So `a | b & c` means `a | (b & c)`. Use
   parentheses to make it clear.
 - The operands are not changed, a new query is created. The operands can be query dicts too
-  (`Term('a', 1) & {'match_all': {}}`), but for type checkers start with a builder query, or wrap the dict into
+  (`Term('a', 1) & {'match_all': {}}`), but for the type checkers start with a builder query, or wrap the dict in
   `Raw()`.
 - In a `with` block the result of an operator is collected (as one clause), the operands are not. But don't write
   an operator expression alone as a statement in a block (`Term('a', 1) | Term('b', 2)`): it works, but pyright
   (VS Code) and PyCharm report it as an expression without effect, because they don't know that creating the query
-  has an effect. Add it to a clause list instead, it is also more explicit:
+  has an effect. Add it to a clause list instead, which is also more explicit:
 
   ```python
   from esorm.builder import Bool, Term, Exists
@@ -466,8 +463,8 @@ Some details:
 <a id="using-the-built-query"></a>
 ## Using the built query
 
-Every method of the models which has a query parameter accepts builder queries too: `search()`, `search_one()`,
-`count()`, `aggregate()`, `scan()` and `scan_batches()`, also on models decorated with `Pagination` or `Sort`:
+Every model method with a query parameter accepts builder queries too: `search()`, `search_one()`, `count()`,
+`aggregate()`, `scan()` and `scan_batches()`, also on models wrapped with `Pagination` or `Sort`:
 
 ```python
 from esorm import ESModel
@@ -494,12 +491,12 @@ async def examples():
 ```
 
 `to_query()` returns the query dict (`ESQuery`), the methods call it too. Use it if you need the dict itself, e.g. to
-put it into a query dict, to log it, or to give it to the ES client directly (`esorm.es.search(query=...)`).
+put it in a query dict, to log it, or to pass it to the ES client directly (`esorm.es.search(query=...)`).
 
-Things worth knowing:
+Some details:
 
-- **Query dicts can be clauses**: wherever a clause is expected, a query dict is accepted too, it is put into the
-  result as it is (in PyCharm wrap dict literals into `Raw()`, see [PyCharm](#builder-pycharm)). So existing query
+- **Query dicts can be clauses**: wherever a clause is expected, a query dict is accepted too, and it is put in the
+  result as it is (in PyCharm wrap dict literals in `Raw()`, see [PyCharm](#builder-pycharm)). So existing query
   dicts can be reused in the builder:
 
   ```python
@@ -514,13 +511,13 @@ Things worth knowing:
   {"bool": {"must": [{"match": {"name": "John"}}], "filter": [{"term": {"active": true}}]}}
   ```
 
-- **A built query can be a part of a query dict**: `{'bool': {'filter': [q.to_query(), ...]}}`.
+- **A built query can be part of a query dict**: `{'bool': {'filter': [q.to_query(), ...]}}`.
 - **The result is a new dict** every time `to_query()` is called (except the query dicts given as clauses, which are
-  in the result as they are). It can be modified, it doesn't change the builder query.
+  in the result as they are). You can modify it, it doesn't change the builder query.
 - **For debugging** print the query: `repr()` shows the query dict, e.g. `<Term {'term': {'age': 18}}>`. To try it in
   Kibana Dev Tools, print it as JSON: `json.dumps(q.to_query(), default=str)` (`default=str` is needed for dates).
-- **The query can be stored and reused**: a builder query can be used in more queries, and `to_query()` can be
-  called any number of times.
+- **The query can be stored and reused**: a builder query can be used in more than one query, and `to_query()` can
+  be called any number of times.
 
 <a id="building-queries-dynamically"></a>
 ## Building queries dynamically
@@ -556,7 +553,7 @@ async def search_products(search: Optional[str] = None,
     return await Product.search(q)
 ```
 
-If no clause is added, the result is `{'bool': {}}`, which matches all documents, so the empty search form returns
+If no clause is added, the result is `{'bool': {}}`, which matches all documents, so an empty search form returns
 everything.
 
 The same with `with` blocks and `if` statements inside them:
@@ -596,21 +593,21 @@ Clause lists (`q.must`, `q.filter`, `q.should`, `q.must_not` of `Bool`, `q.queri
 | Read | `q.must[0]`, `for clause in q.must:` |
 | Collect in a block | `with q.must:` |
 
-The single clause places (`q.query` of `Nested`, `q.positive` of `Boosting`, ...) are `Clause` objects, they can be
-set by `set()`, e.g. `q.positive.set(Match('text', 'apple'))`, or in a `with` block.
+The places for a single clause (`q.query` of `Nested`, `q.positive` of `Boosting`, ...) are `Clause` objects. Set
+them with `set()`, e.g. `q.positive.set(Match('text', 'apple'))`, or in a `with` block.
 
-The other parameters of the leaf clauses are in their `params` dict (in the form ES uses them), it can be changed
+The other parameters of the leaf clauses are in their `params` dict (in the form ES uses them), which can be changed
 too: `t.params['boost'] = 2.0`.
 
 <a id="query-clauses"></a>
 ## Query clauses
 
 Every query clause of the builder creates the ES query of the same name. The links point to the ElasticSearch
-documentation of the query, the parameters have the same names and meaning, except `name`, which is `_name` in ES
-(see [Common parameters](#builder-common-parameters)). The API reference has the full parameter lists.
+documentation of the queries. The parameters have the same names and meanings as in ES, except `name`, which is
+`_name` in ES (see [Common parameters](#builder-common-parameters)). The API reference has the full parameter lists.
 
-The leaf clauses use the shortest form ES accepts, like you would write them by hand: `{'term': {'age': 18}}` instead
-of `{'term': {'age': {'value': 18}}}`, if there are no other parameters.
+The leaf clauses use the shortest form ES accepts, as you would write them by hand: `{'term': {'age': 18}}` instead
+of `{'term': {'age': {'value': 18}}}` if there are no other parameters.
 
 <a id="builder-compound-queries"></a>
 ### Compound queries
@@ -627,7 +624,7 @@ The four clause lists of `Bool`:
 
 - `must`: must match, and contributes to the score
 - `filter`: must match, but doesn't contribute to the score, so ES can cache it. Use it for exact conditions (terms,
-  ranges, ...) which don't need scoring.
+  ranges, ...) that don't need scoring.
 - `should`: should match. If there are no must or filter clauses, at least one of them must match, otherwise they only
   increase the score, unless `minimum_should_match` is set.
 - `must_not`: must not match (in filter context, no scoring)
@@ -684,7 +681,7 @@ with DisMax(tie_breaker=0.7) as q:
 }
 ```
 
-Function score: modify the score, e.g. by a field value. The score functions are dicts (`ESScoreFunction`), as in ES:
+Function score: modifies the score, e.g. by a field value. The score functions are dicts (`ESScoreFunction`), as in ES:
 
 ```python
 from esorm.builder import FunctionScore, Match
@@ -704,13 +701,13 @@ q = FunctionScore(Match('title', 'elasticsearch'),
 }
 ```
 
-If a function needs a filter query, give it as a dict: `{'filter': Term('a', 1).to_query(), 'weight': 2}`.
+If a function needs a filter query, pass it as a dict: `{'filter': Term('a', 1).to_query(), 'weight': 2}`.
 
 <a id="builder-term-level-queries"></a>
 ### Term level queries
 
-Term level queries search for exact values, they are not analyzed. Use them on `keyword`, numeric, date and boolean
-fields, mostly in filter context.
+Term level queries search for exact values, the values are not analyzed. Use them on `keyword`, numeric, date and
+boolean fields, mostly in filter context.
 
 | Class | ES query | Example |
 |---|---|---|
@@ -725,7 +722,7 @@ fields, mostly in filter context.
 | `Regexp(field, value, *, flags, ...)` | [regexp](https://www.elastic.co/docs/reference/query-languages/query-dsl/query-dsl-regexp-query) | `Regexp('code', 'HU-[0-9]+')` |
 | `Fuzzy(field, value, *, fuzziness, ...)` | [fuzzy](https://www.elastic.co/docs/reference/query-languages/query-dsl/query-dsl-fuzzy-query) | `Fuzzy('name', 'jonh', fuzziness='AUTO')` |
 
-The values can be strings, numbers, booleans, dates, datetimes, UUIDs and Decimals, the ES client serializes them.
+The values can be strings, numbers, booleans, dates, datetimes, UUIDs and Decimals, which the ES client serializes.
 Range boundaries can be date math strings too (`'now-1d/d'`):
 
 ```python
@@ -768,8 +765,8 @@ q = Term('tag', 'Python', case_insensitive=True)
 {"term": {"tag": {"value": "Python", "case_insensitive": true}}}
 ```
 
-`Terms` accepts a [terms lookup](https://www.elastic.co/docs/reference/query-languages/query-dsl/query-dsl-terms-query#query-dsl-terms-lookup)
-too, to get the values from a field of another document:
+`Terms` also accepts a [terms lookup](https://www.elastic.co/docs/reference/query-languages/query-dsl/query-dsl-terms-query#query-dsl-terms-lookup)
+to get the values from a field of another document:
 
 ```python
 from esorm.builder import Terms
@@ -784,8 +781,8 @@ q = Terms('color', {'index': 'my-index', 'id': '2', 'path': 'color'})
 <a id="builder-full-text-queries"></a>
 ### Full text queries
 
-Full text queries analyze the query text the same way as the field was analyzed at indexing. Use them on `text`
-fields (in ESORM a `str` field is `keyword`, use `esorm.fields.text` or `TextField` for full text search).
+Full text queries analyze the query text the same way the field was analyzed at indexing. Use them on `text`
+fields (in ESORM a `str` field is a `keyword` field, use `esorm.fields.text` for full text search).
 
 | Class | ES query | Example |
 |---|---|---|
@@ -829,8 +826,8 @@ with Bool() as q:
 }
 ```
 
-For search boxes use `SimpleQueryString`: its syntax is simple and it never returns an error. `QueryString` has the
-full Lucene syntax, but it returns an error for an invalid query, so it is not for user input.
+For search boxes use `SimpleQueryString`: its syntax is simple, and it never returns an error. `QueryString` has the
+full Lucene syntax, but it returns an error for an invalid query, so it is not suitable for user input.
 
 <a id="builder-joining-queries"></a>
 ### Joining queries
@@ -842,8 +839,8 @@ full Lucene syntax, but it returns an error for an invalid query, so it is not f
 | `HasParent(parent_type, query, *, score, ...)` | [has_parent](https://www.elastic.co/docs/reference/query-languages/query-dsl/query-dsl-has-parent-query) | `query` |
 | `ParentId(type, id)` | [parent_id](https://www.elastic.co/docs/reference/query-languages/query-dsl/query-dsl-parent-id-query) | |
 
-`List[SubModel]` fields are `nested` fields in ESORM. A nested query matches if one nested document matches all its
-clauses. The field names are full paths:
+`List[SubModel]` fields are `nested` fields in ESORM. A nested query matches if a single nested document matches
+all its clauses. The field names are full paths:
 
 ```python
 from typing import List
@@ -886,8 +883,8 @@ with Nested('comments') as q:
 ```
 
 Without `Nested` these clauses don't match anything, because the nested documents are stored as separate (hidden)
-documents. A single `SubModel` field (not a list) is an `object` field, it doesn't need `Nested`: its fields can be
-queried directly, e.g. `Term('address.city', 'Budapest')`.
+documents. A single `SubModel` field (not a list) is an `object` field, which doesn't need `Nested`: its fields can
+be queried directly, e.g. `Term('address.city', 'Budapest')`.
 
 `inner_hits={}` returns the matching nested documents in the raw ES response, the models returned by `search()`
 don't contain them.
@@ -938,8 +935,8 @@ with Bool() as q:
 |---|---|---|
 | `Knn(field, query_vector, *, k, num_candidates, filter, similarity, ...)` | [knn](https://www.elastic.co/docs/reference/query-languages/query-dsl/query-dsl-knn-query) | `filter` |
 
-The filter is applied during the vector search, so `k` matching results are returned (if there are enough), even if
-most documents don't match the filter:
+The filter is applied during the vector search, so `k` matching results are returned (if there are enough), even
+if most documents don't match the filter:
 
 ```python
 from esorm.builder import Knn, Term
@@ -991,10 +988,9 @@ q = (Match('title', 'red shoes')
 <a id="builder-any-other-query"></a>
 ### Any other query
 
-The builder has the most often used queries. For the others (span, percolate, script, ...) use their query dicts:
-
-- as a parameter or with `append()`, a query dict can be used directly,
-- in a `with` block or with an operator, wrap it into `Raw`:
+The builder has the most frequently used queries. For the others (span, percolate, script, ...) use their query
+dicts. As a parameter or with `append()` a query dict can be used directly. In a `with` block or with an operator,
+wrap it in `Raw`:
 
 ```python
 from esorm.builder import Bool, Raw, Match
@@ -1028,8 +1024,8 @@ with Bool() as q:
 <a id="builder-common-parameters"></a>
 ### Common parameters
 
-- `boost`: boosting value of the query, it multiplies the score.
-- `name`: name of the query, it is `_name` in ES. The names of the matching queries are returned in the
+- `boost`: the score of the query is multiplied by it.
+- `name`: the name of the query, it is `_name` in ES. The names of the matching queries are returned in the
   `matched_queries` of the hits, so you can see which clauses matched:
 
   ```python
@@ -1049,13 +1045,13 @@ with Bool() as q:
   }
   ```
 
-- The parameters which are not given (`None`) are left out of the query, so ES uses its defaults.
+- The parameters that are not given (`None`) are left out of the query, so ES uses its defaults.
 - Leaf clause parameters are keyword-only: `Range('age', gte=18)`, not `Range('age', 18)`.
 
 <a id="custom-query-clauses"></a>
 ## Custom query clauses
 
-If you often use the same query, or a query which is not in the builder, write your own clause: subclass `Query`,
+If you often use the same query, or a query that is not in the builder, write your own clause: subclass `Query`,
 implement `to_query()`, and call `super().__init__()` at the end of `__init__()` (that's where the clause is added to
 the current `with` block, so it must be complete by then):
 
@@ -1138,7 +1134,7 @@ doesn't check a dict literal against a parameter whose type is a union of a `Typ
 reports even the correct dicts there. So:
 
 - **Query dict literals in the parameters of builder queries** (e.g. `Bool(filter=[Term(...), {...}])` or
-  `Nested('comments', {...})`) are reported. Wrap them into `Raw()`, whose parameter is a plain `ESQuery`, or store
+  `Nested('comments', {...})`) are reported. Wrap them in `Raw()`, whose parameter is a plain `ESQuery`, or store
   them in an annotated variable (`active: ESQuery = {...}`). Both are checked:
 
   ```python
@@ -1172,8 +1168,8 @@ reports even the correct dicts there. So:
 <a id="builder-tips-and-pitfalls"></a>
 ## Tips and pitfalls
 
-- **Clauses created for later use inside a block are collected too.** Create them before the block, or give them to a
-  query explicitly in the block (then they are moved):
+- **Clauses created inside a block for later use are collected too.** Create them before the block, or give them
+  to a query explicitly in the block (then they are moved):
 
   ```python
   from esorm.builder import Bool, Term, Match
@@ -1190,7 +1186,7 @@ reports even the correct dicts there. So:
   ```
 
 - **`str` fields are `keyword` fields in ESORM.** `Match` on a keyword field matches only the exact value. Use
-  `esorm.fields.text` or `TextField` for full text search, and `Term` / `Terms` for keyword fields.
+  `esorm.fields.text` for full text search, and `Term` / `Terms` for keyword fields.
 - **Use `filter` for exact conditions.** Term level queries and ranges usually don't need scoring, in `filter` they
   are faster and cached.
 - **`should` clauses next to `must` or `filter` are optional**, they only increase the score. Set
@@ -1200,7 +1196,7 @@ reports even the correct dicts there. So:
   but type checkers don't know the type of the dict literal there.
 - **Don't write an operator expression alone in a `with` block**, use `q.must += a | b`, see
   [operators](#combining-queries-with-operators).
-- **In PyCharm wrap query dict literals into `Raw()`** in the parameters of builder queries, see
+- **In PyCharm wrap query dict literals in `Raw()`** in the parameters of builder queries, see
   [PyCharm](#builder-pycharm).
 - **An empty `Bool()` matches all documents**, which is usually what an empty search form should do. If it shouldn't,
   check the clauses before searching (e.g. `if not q.must and not q.filter: return []`).

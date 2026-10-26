@@ -1,19 +1,21 @@
 <a id="advanced-usage"></a>
-# 🔬 Advanced usage
+# 🔬 Advanced usage
 
 
 <a id="optimistic-concurrency-control"></a>
 ## Optimistic concurrency control
 
-ESORM uses optimistic concurrency control automatically, to prevent race conditions and data losses 
-when multiple updates are made to the same document at the same time. 
+If more processes update the same document at the same time, one of them could overwrite the changes of the
+other. ESORM prevents this automatically with optimistic concurrency control.
 
-When you save a document, ESORM checks if the document has been changed since it was loaded and 
-raises an exception if it has. In the background it uses the `_seq_no` and `_primary_term` fields
-for checking. More information in [ES documentation](https://www.elastic.co/guide/en/elasticsearch/reference/current/optimistic-concurrency-control.html).
+When you load a document, ESORM stores its `_seq_no` and `_primary_term`. When you save or delete it, ESORM sends
+them with the request, and ElasticSearch rejects the operation if the document was changed since it was loaded.
+More information in the [ES documentation](https://www.elastic.co/docs/reference/elasticsearch/rest-apis/optimistic-concurrency-control).
 
-This is how to handle race conditions:
+This is how to handle the conflicts:
+
 ```python
+from elasticsearch import ConflictError
 from esorm import ESModel
 
 
@@ -21,43 +23,38 @@ class User(ESModel):
     first_name: str
     last_name: str
 
-    
+
 async def test_race_condition():
-    """ Update the user """
-    from elasticsearch import ConflictError
-    
-    # Load the user
-    user_load1 = await User.get(id = 1)
-    # Load again
-    user_load2 = await User.get(id = 1)
-    # Here both have the same _seq_no and _primary_term
-    
+    # Load the same user twice
+    user_load1 = await User.get(1)
+    user_load2 = await User.get(1)
+    # Both have the same _seq_no and _primary_term
+
     try:
         # Update the 1st loaded user
         user_load1.first_name = "John"
         await user_load1.save()
         # Update the 2nd loaded user
         user_load2.first_name = "Jane"
-        await user_load2.save()   # This will raise a ConflictError         
+        await user_load2.save()  # This raises a ConflictError, the document was changed since it was loaded
     except ConflictError:
-        print("Conflict error")    
-        
-    # Load the user
-    user_load1 = await User.get(id = 1)
-    # Load again
-    user_load2 = await User.get(id = 1)    
-    # Here both have the same _seq_no and _primary_term
-    
-    # Delete operation
+        print("Conflict error")
+
+    # Load the same user twice again
+    user_load1 = await User.get(1)
+    user_load2 = await User.get(1)
+
+    # Delete works the same way
     try:
         user_load1.first_name = "John"
         await user_load1.save()
-        await user_load2.delete()  # This will raise a ConflictError
+        await user_load2.delete()  # This raises a ConflictError
     except ConflictError:
         print("Conflict error")
 ```
 
-This is how to use it in bulk operations:
+In bulk operations the conflicts are reported by `BulkError`:
+
 ```python
 from esorm import ESModel, ESBulk, error
 
@@ -68,25 +65,24 @@ class User(ESModel):
 
 
 async def test_bulk():
-    # Load the user
-    user_load1 = await User.get(id = 1)
-    # Load again
-    user_load2 = await User.get(id = 1)    
-    # Here both have the same _seq_no and _primary_term
+    # Load the same user twice
+    user_load1 = await User.get(1)
+    user_load2 = await User.get(1)
     try:
-        async with ESBulk(wait_for=True) as bulk:
+        async with ESBulk(refresh="wait_for") as bulk:
             user_load1.first_name = "John"
             await bulk.save(user_load1)
             user_load2.first_name = "Jane"
-            await bulk.save(user_load2)  #
+            await bulk.save(user_load2)  # This one fails, the 1st one changed the document
     except error.BulkError as e:
-        # You can get the failed operations from e.failed_operations
+        # The failed operations, with their models
         print("Bulk error:", e.failed_operations)
 ```
 
 ### Retry on conflict
 
-You can use the `retry_on_conflict` decorator to automatically retry the operation(s) on conflict:
+The `retry_on_conflict` decorator runs an async function again if it raises a conflict error:
+
 ```python
 import asyncio
 from esorm import ESModel, retry_on_conflict
@@ -98,13 +94,15 @@ class User(ESModel):
     logins: int = 0
 
 
-async def test_retry_on_conflict(user: User):    
-    @retry_on_conflict(3)  # Retry 3 times on conflict
+async def test_retry_on_conflict(user: User):
+    @retry_on_conflict(3)  # Retry at most 3 times
     async def login(user_id):
-        _user = await User.get(id=user_id)
+        _user = await User.get(user_id)
         _user.logins += 1
-    
-    # This won't raise a ConflictError   
+        await _user.save()
+
+    # These run at the same time, but they don't raise ConflictError,
+    # because the conflicting ones load the user again and retry
     await asyncio.gather(
         login(user.__id__),
         login(user.__id__),
@@ -112,9 +110,14 @@ async def test_retry_on_conflict(user: User):
     )
 ```
 
-#### If it is a model method
+Without a number it retries until the function succeeds. You can also raise `esorm.error.ConflictError` yourself to
+retry the function.
 
-If you retry a model method, it will reload the model automaticaly by default before calling the method again:
+#### Model methods
+
+If the decorated function is a method of a model, the model is reloaded from ElasticSearch before the next try
+(`reload_on_conflict=True` is the default):
+
 ```python
 import asyncio
 from esorm import ESModel, retry_on_conflict
@@ -124,17 +127,18 @@ class User(ESModel):
     first_name: str
     last_name: str
     logins: int = 0
-    
-    @retry_on_conflict(3, reload_on_conflict=True)  # reload_on_conflict is True by default 
+
+    @retry_on_conflict(3, reload_on_conflict=True)  # reload_on_conflict is True by default
     async def login(self):
         self.logins += 1
         await self.save()
-        
+
+
 async def test_retry_on_conflict(user: User):
     user_1 = await User.get(user.__id__)
     user_2 = await User.get(user.__id__)
     user_3 = await User.get(user.__id__)
-    # This won't raise a ConflictError, becaue the model reloads and retries the method on conflict   
+    # This doesn't raise a ConflictError, because the conflicting models are reloaded, and the method is retried
     await asyncio.gather(
         user_1.login(),
         user_2.login(),
@@ -145,52 +149,55 @@ async def test_retry_on_conflict(user: User):
 <a id="lazy-properties"></a>
 ## Lazy properties
 
-ESORM is based on [pydantic](https://pydantic-docs.helpmanual.io/) which is fully synchronous, so
-it's not possible to use async functions to calculate property values. Because of this, you also 
-can't query another model in a computed field. To solve this problem, ESORM provides lazy properties.
+Pydantic is synchronous, so a computed field can't be async, and it can't query other documents. Lazy properties
+solve this: they are async functions, which ESORM runs after the models are loaded.
 
-You can create lazy properties like this:
 ```python
 from typing import List
 from esorm import ESModel, lazy_property
 from pydantic import computed_field
 
+
 class User(ESModel):
     first_name: str
     last_name: str
 
-    # This is classic pydantic computed field, which can be only synchronous
+    # A classic Pydantic computed field, it can only be synchronous
     @computed_field
     @property
     def full_name(self) -> str:
         return f"{self.first_name} {self.last_name}"
-        
-    # This is lazy property, which can be async
+
+    # A lazy property, it can be async
     @lazy_property
     async def same_first_name(self) -> List["User"]:
         return await User.search_by_fields({'first_name': self.first_name})
 ```
 
-Lazy properties in the background work like the following: 
-- they are registered in the model by storing the async function
-- replace it to a real property on model creation
-- after a query is executed (which is always async), lazy properties are calculated and stored in the model
-- these stored values are used when accessing the property, e.g, when they are serialized to JSON
+How they work:
 
-Lazy properties are computed parallelly, you can configure the number of parallel query tasks by 
-`set_max_lazy_property_concurrency` function:
+- `@lazy_property` turns the async function into a read-only property, and registers the function in the model.
+- After `get()`, `reload()`, `search()`, `scan()` and the other loading methods, ESORM runs the functions of the
+  loaded models (and of their sub-models), and stores the results.
+- The property returns the stored result, e.g. when the model is serialized to JSON. Before the function runs, it
+  returns `None`. For models you create yourself, run them with `await model.calc_lazy_properties()`.
+
+The function must have a return annotation.
+
+The lazy properties of more models are computed concurrently, at most 16 at the same time by default. You can
+change this with `set_max_lazy_property_concurrency`:
 
 ```python
 from esorm.model import set_max_lazy_property_concurrency
 
-set_max_lazy_property_concurrency(10)  # Set the number of parallel tasks to 10
+set_max_lazy_property_concurrency(10)  # At most 10 at the same time
 ```
 
-The above example is recursive, because `User` model is used in the `same_first_name` property. This
-could lead to an infinite loop. Because of this, ESORM restricts the depth of recursion to 1 by default.
+The example above is recursive: `same_first_name` loads `User` models, which have a `same_first_name` property
+too, and so on. To prevent an infinite loop, ESORM limits the depth of the recursion, which is 1 by default. Beyond
+this depth the lazy properties are not computed, they return `None`, and a warning is logged.
 
-If you want to change the recursion depth, you can do it by setting the `max_lazy_property_depth` in 
-the `ESConfig`:
+You can change the depth with `lazy_property_max_recursion_depth` in `ESConfig`:
 
 ```python
 from esorm import ESModel
@@ -199,59 +206,66 @@ from esorm import ESModel
 class User(ESModel):
     class ESConfig:
         lazy_property_max_recursion_depth = 2  # Set the recursion depth to 2
-   
+
     first_name: str
     last_name: str
-    ...
+    # ...
 ```
 
 <a id="shard-routing"></a>
 ## Shard routing
 
-Shard routing is a feature of Elasticsearch which allows you to store documents in a specific shard.
-This can be useful if you want to store documents of a specific type in a specific shard, e.g, you 
-want to store all documents of a specific region. When using shard routing, ElasticSearch does not 
-need to search all shards, but only the shards which contain the documents you are looking for.
+ElasticSearch stores every document in one shard of the index. By default, the shard is chosen by the id of the
+document. With a routing value you can choose it yourself: documents with the same routing value are stored in the
+same shard. If you search with a routing value, ElasticSearch searches only that shard, instead of all of them.
+This is useful e.g. if most queries are for the documents of a single customer or region.
 
-More info: https://www.elastic.co/guide/en/elasticsearch/reference/current/search-shard-routing.html
+More info in the [ES documentation](https://www.elastic.co/docs/reference/elasticsearch/mapping-reference/mapping-routing-field).
 
-In ESORM shard routing looks like this:
+In ESORM the routing value of a document is returned by its `__routing__` property:
 
 ```python
 from typing import List
 from esorm import ESModel
 
+
 class User(ESModel):
     first_name: str
     last_name: str
     region: str
-    
+
     @property
     def __routing__(self) -> str:
         """ Return the routing value for this document """
         return self.region + '_routing'  # Calculate the routing value from the region field
-        
+
+
 async def get_user_by_region(region: str = 'europe') -> List[User]:
     """ Search for users by region using shard routing """
     return await User.search_by_fields({'region': region}, routing=f"{region}_routing")
 ```
 
-<a id="retreive-selected-fields-only"></a>
-## Retreive Selected Fields Only
+`save()`, `delete()`, `reload()` and the bulk operations use `__routing__` automatically. For `get()`, the search
+methods and `scan()` give the routing value in the `routing` parameter, e.g. `await User.get(user_id,
+routing='europe_routing')`. Without it, `get()` may look for the document in the wrong shard.
 
-When you query documents from Elasticsearch, you can specify which fields you want to get back.
-For this you can use teh `_source` argument in `search` methods and `get` method.
-This will only work if you specify default values for all the fields you may skip:
+<a id="retrieve-selected-fields-only"></a>
+## Retrieve selected fields only
+
+To transfer less data, you can tell ElasticSearch which fields to return, with the `_source` parameter of `get()`,
+the search methods and `scan()`. The other fields get their default values, so this works only if the skipped
+fields have defaults:
 
 ```python
 import esorm
+
 
 class Model(esorm.ESModel):
     f_int: int = 0
     f_str: str = 'a'
 
 
-async def test_source():    
+async def test_source():
     doc = Model(f_int=1, f_str='b')
     doc_id = await doc.save()
 
@@ -278,14 +292,16 @@ async def test_source():
     assert doc.f_int == 1
 ```
 
+Don't save a model loaded this way, because the skipped fields would be overwritten with the defaults.
+
 <a id="iterating-through-large-result-sets"></a>
 ## Iterating through large result sets
 
-`search()` with pagination is made for showing results to users: it returns a page of results, and
-it can't go deeper than 10,000 results by default (`index.max_result_window`), because the deeper the
-page, the more documents every shard needs to sort and return. When you need to process *all* results
-of a query, e.g. to export, migrate or reindex data, or to run batch jobs, use `scan()` or
-`scan_batches()`. They can iterate through any number of documents (even millions) efficiently.
+`search()` with pagination is for showing results to users: it returns a page of results, and it can't go
+deeper than 10,000 results by default (`index.max_result_window`), because the deeper the page, the more documents
+every shard needs to sort and return. When you need to process *all* results of a query, e.g. to export, migrate
+or reindex data, or to run batch jobs, use `scan()` or `scan_batches()`. They can iterate through any number of
+documents (even millions) efficiently.
 
 | | `search()` + `Pagination` | `scan()` / `scan_batches()` |
 |---|---|---|
@@ -297,8 +313,8 @@ of a query, e.g. to export, migrate or reindex data, or to run batch jobs, use `
 
 ### Basic usage
 
-`scan()` returns an async iterator, which yields the models one by one, while in the background it
-fetches them in batches:
+`scan()` returns an async iterator, which yields the models one by one, while it fetches them in batches in the
+background:
 
 ```python
 from esorm import ESModel
@@ -315,7 +331,7 @@ async def export_adults():
         print(user.name)
 ```
 
-Without query, all documents are returned:
+Without a query, it returns all documents:
 
 ```python
 async def count_by_country():
@@ -325,8 +341,8 @@ async def count_by_country():
     return counts
 ```
 
-`scan_batches()` takes the same arguments, but it yields lists of models (one list per request).
-It is useful if you want to process the documents in groups, e.g. with bulk operations:
+`scan_batches()` has the same parameters, but it yields lists of models (one list per request). Use it if you
+process the documents in groups, e.g. with bulk operations:
 
 ```python
 from esorm import ESBulk
@@ -334,16 +350,16 @@ from esorm import ESBulk
 
 async def anonymize_users():
     async for users in User.scan_batches(batch_size=500):
-        # Here `users` is a list of maximum 500 models
+        # `users` is a list of at most 500 models
         async with ESBulk() as bulk:
             for user in users:
                 user.name = 'anonymous'
                 await bulk.save(user)
 ```
 
-Modifying the documents during the iteration is safe: the iteration doesn't see the changes, so every
-document is processed exactly once. Optimistic concurrency control works as usual, so if a document is
-modified by someone else after it was fetched, saving it raises a conflict error.
+You can safely modify the documents during the iteration: the iteration doesn't see the changes, so every
+document is processed exactly once. Optimistic concurrency control works as usual, so if someone else modifies a
+document after it was fetched, saving it raises a conflict error.
 
 ### Parameters
 
@@ -351,13 +367,13 @@ The parameters are similar to the ones of `search()`:
 
 | Parameter | Default | Description |
 |---|---|---|
-| `query` | `None` | ElasticSearch query dict, if not set, all documents are returned |
+| `query` | `None` | ElasticSearch query dict or builder query. If not set, all documents are returned |
 | `batch_size` | `1000` | The number of documents fetched in one request |
-| `sort` | `None` | Field name or sort term list like in `search()`, if not set, `ESConfig.default_sort` is used, or the index order |
+| `sort` | `None` | Field name or sort term list, as in `search()`. If not set, `ESConfig.default_sort` is used, or the index order |
 | `keep_alive` | `'1m'` | How long the point in time is kept alive between two requests |
 | `routing` | `None` | Shard routing value |
-| `index` | `None` | Index name (or pattern), if not set, the index of the model is used |
-| `_source` | `None` | Fields to return, see [Retreive Selected Fields Only](#retreive-selected-fields-only) |
+| `index` | `None` | Index name (or pattern). If not set, the index of the model is used |
+| `_source` | `None` | Fields to return, see [Retrieve selected fields only](#retrieve-selected-fields-only) |
 | `**kwargs` | | Other search API parameters (e.g. `request_timeout`) |
 
 ### How it works
@@ -367,18 +383,18 @@ The parameters are similar to the ones of `search()`:
 which is the recommended way of deep pagination since ElasticSearch 7.10:
 
 1. It opens a point in time on the index. It is a lightweight snapshot of the index, so all the following
-   requests see the same data, regardless of changes made in the meantime.
+   requests see the same data, regardless of the changes made in the meantime.
 2. It fetches the results in batches. Instead of a page number, every request continues after the sort
-   values of the last document of the previous batch (`search_after`), so every shard only needs to return
+   values of the last document of the previous batch (`search_after`), so every shard needs to return only
    `batch_size` documents, no matter how deep the iteration is.
 3. When there are no more results, or the iteration is stopped, it closes the point in time.
 
-Lazy properties are computed for every batch, like for the results of `search()`.
+Lazy properties are computed for every batch, as for the results of `search()`.
 
 ### Sorting
 
 Without `sort` (and `ESConfig.default_sort`), the results come in index order, which is the most efficient.
-If the order matters, set it like in `search()`. The `Sort` decorator works with `scan()` too
+If the order matters, set it as in `search()`. The `Sort` decorator works with `scan()` too
 (`Pagination` is ignored, because there are no pages):
 
 ```python
@@ -394,16 +410,16 @@ async def users_by_age():
         ...
 ```
 
-`search_after` needs a unique sort order, otherwise documents with the same sort values at the border of
+`search_after` needs a unique sort order, otherwise the documents with the same sort values at the border of
 two batches would be lost. ESORM adds a unique tiebreaker to the sort automatically (`_shard_doc`, or `_id`
-on OpenSearch 2.x, which doesn't support `_shard_doc`), so it is safe to sort by any field, e.g. by `age`,
-which is the same for many users.
+on OpenSearch 2.x, which doesn't support `_shard_doc`), so you can sort by any field, e.g. by `age`, which is the
+same for many users.
 
 ### Stopping early
 
 The point in time is closed automatically when the iteration ends. But if you stop the iteration early
 (by `break`, `return` or an exception), Python closes the async iterator only when it is garbage
-collected, so the point in time would remain open until then (or until `keep_alive` expires). To close it
+collected, so the point in time stays open until then (or until `keep_alive` expires). To close it
 immediately, use `contextlib.aclosing()`:
 
 ```python
@@ -449,21 +465,18 @@ memory. So don't make `keep_alive` longer than necessary, and stop the iteration
 <a id="watchers"></a>
 ## Watchers
 
-You can add watches to automatically perform an action when certain conditions are met. The conditions 
-are generally based on data you’ve loaded into the watch, also known as the Watch Payload. This 
-payload can be loaded from different sources - from Elasticsearch, an external HTTP service, or even 
-a combination of the two.
+ElasticSearch [Watcher](https://www.elastic.co/docs/explore-analyze/alerting/watcher) runs actions on a
+schedule, when a condition is met. The condition usually checks data loaded from ElasticSearch or from an HTTP
+service (the watch payload), and the action can e.g. send an email, call a webhook or index a document.
 
-More info: https://www.elastic.co/guide/en/elasticsearch/reference/current/how-watcher-works.html
+Watcher is not part of the free (Basic) license of ElasticSearch, it needs a paid subscription or a trial license.
+OpenSearch doesn't support it.
 
-<small>
-The watcher feature is not free in Elasticsearch, you need to have a license for it. Or if you are 
-an experienced developer, you can compile Elasticsearch from source and disable the license check.
-You can do it for your own use, because the source code is available, though it is not free.
-(hint: you need to recompile the `x-pack` plugin only, and you can replace it in the compiled version)
-</small>
+In ESORM a watch is a subclass of `esorm.watcher.Watcher`, with the parts of the
+[watch definition](https://www.elastic.co/docs/explore-analyze/alerting/watcher/how-watcher-works) as class
+attributes: `trigger`, `input`, `condition`, `actions` and `metadata`. `DeleteWatcher` is a ready-made watch, which
+deletes the documents matching a query. This example deletes the drafts older than 1 hour:
 
-The following example shows how to create a watcher which deletes all draft documents older than 1 hour:
 ```python
 from esorm.watcher import DeleteWatcher
 from esorm import query
@@ -477,11 +490,11 @@ class PurgeDraft(DeleteWatcher):
     """
     trigger = {
         "schedule": {
-            "interval": f"30s"
+            "interval": "30s"
         }
     }
 
-    _index = f"draft"
+    _index = "esorm_draft"  # The full index name, with the prefix
     _query: query.ESQuery = {
         "bool": {
             "must": [
@@ -506,14 +519,30 @@ class PurgeDraft(DeleteWatcher):
     }
 ```
 
-For more info check the [reference](https://esorm.readthedocs.io/en/latest/esorm.html#module-esorm.watcher),
-or ElasticSearch documentation, or the source code.
+`DeleteWatcher` calls the delete by query API of ElasticSearch with a webhook, by default on
+`http://127.0.0.1:9200`, as seen from the ElasticSearch node. You can change this with the `_scheme`, `_host` and
+`_port` attributes.
+
+The watches are created by `setup_watchers()`, after `connect()`. It creates (or updates) every defined watch, the
+id of a watch is the name of its class:
+
+```python
+from esorm.watcher import setup_watchers
+
+
+async def prepare_es():
+    import watchers  # Import your watchers
+    await setup_watchers(watchers)
+```
+
+For more info see the [API reference](https://esorm.readthedocs.io/en/latest/esorm.html#module-esorm.watcher),
+the ElasticSearch documentation, or the source code.
 
 
 <a id="fastapi-integration"></a>
 ## FastAPI integration
 
-Because ESORM is based on pydantic, it can be easily integrated with FastAPI:
+ESORM models are Pydantic models, so FastAPI can use them as request and response models:
 
 ```python
 from typing import List, Optional
@@ -525,7 +554,7 @@ class User(ESModelTimestamp):
     """ The User model """
     first_name: str
     last_name: str
-    
+
 
 app = FastAPI()
 
@@ -548,11 +577,15 @@ async def users(first_name: Optional[str] = None, last_name: Optional[str] = Non
 <a id="fastapi-pagination"></a>
 ### FastAPI pagination
 
-You can add pagination and sort parameters as a dependency in endpoint arguments:
-The pagination dependency set the `X-Total-Hits` header in the response to the total number of hits.
-So in your frontend, you can get the total number of hits from this header.
+`esorm.fastapi` creates FastAPI dependencies for pagination and sorting:
 
-```python 
+- `make_dep_pagination()` adds `_page` and `_page_size` query parameters to the endpoint, and sets the
+  `X-Total-Hits` response header to the total number of hits, so the frontend can show the number of pages.
+  The page size is limited to 10,000 by default, you can change it with `set_max_page_size()`.
+- `make_dep_sort()` adds a `_sort` query parameter, whose values are the names of the given sort options. It is an
+  enum, so the options can be selected in the Swagger UI.
+
+```python
 from typing import List
 from esorm import ESModelTimestamp, Pagination, Sort
 from fastapi import FastAPI, Depends
@@ -564,25 +597,26 @@ class User(ESModelTimestamp):
     """ The User model """
     first_name: str
     last_name: str
-    
+
 
 app = FastAPI()
 
+
 @app.get("/all_users")
 async def all_users(
-    # This will create a _page, and a _page_size query parameter for the endpoint 
+    # This creates the _page and _page_size query parameters of the endpoint
     pagination: Pagination = Depends(make_dep_pagination(default_page=1, default_page_size=10)),
-    # This will create a _sort enum query parameter for the endpoint, so it is selectable in swagger UI
-    sort: Sort = Depends(make_dep_sort( 
-        first_name_last_name_asc=  # This is the name of the 1st sort option
-        # Definition of the sort options
-        [  
+    # This creates the _sort query parameter of the endpoint, its values are the names of the options
+    sort: Sort = Depends(make_dep_sort(
+        first_name_last_name_asc=  # The name of the 1st sort option
+        # The definition of the sort option
+        [
             {'first_name': {"order": "asc"}},
             {'last_name': {"order": "asc"}},
         ],
-        last_name_first_name_asc=  # This is the name of the 2nd sort option
-        # Definition of the sort options
-        [              
+        last_name_first_name_asc=  # The name of the 2nd sort option
+        # The definition of the sort option
+        [
             {'last_name': {"order": "asc"}},
             {'first_name': {"order": "asc"}},
         ]
@@ -592,11 +626,14 @@ async def all_users(
     return await sort(pagination(User)).all()
 ```
 
+If the frontend is on another domain, add `X-Total-Hits` to the `expose_headers` of the CORS middleware, otherwise
+the browser hides it from the frontend code.
+
 <a id="fastapi-streaming-export"></a>
 ### FastAPI streaming export
 
-`scan()` can be used to stream any number of documents from an endpoint, without loading all of them
-into memory. E.g. as [NDJSON](https://github.com/ndjson/ndjson-spec) (one JSON document per line):
+With `scan()` an endpoint can stream any number of documents, without loading all of them into memory, e.g. as
+[NDJSON](https://github.com/ndjson/ndjson-spec) (one JSON document per line):
 
 ```python
 from contextlib import aclosing

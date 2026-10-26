@@ -84,6 +84,18 @@ class TestOpenSearchConversion:
         assert body['mappings']['properties']['v']['type'] == 'dense_vector'
         assert 'index.knn' not in body['settings']
 
+    @pytest.mark.parametrize('similarity, space_type', [
+        ('cosine', 'cosinesimil'),
+        ('dot_product', 'innerproduct'),
+        ('l2_norm', 'l2'),
+        ('max_inner_product', 'innerproduct'),
+    ])
+    def test_dense_vector_similarity(self, similarity, space_type):
+        body = {'mappings': {'properties': {'v': {'type': 'dense_vector', 'dims': 3, 'similarity': similarity}}}}
+        converted = _convert_index_body(body)
+        assert converted['mappings']['properties']['v'] == {'type': 'knn_vector', 'dimension': 3,
+                                                            'space_type': space_type}
+
     def test_knn_setting_not_overwritten(self):
         body = {'mappings': {'properties': {'v': {'type': 'dense_vector', 'dims': 3}}},
                 'settings': {'index': {'knn': False}}}

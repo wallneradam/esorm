@@ -128,12 +128,11 @@ def _description_from_docstring(model: Type[BaseModel]):
                 continue
 
             doc_node = node.value
-            if isinstance(doc_node, ast.Constant):  # 'regular' variable doc string
-                docstring = doc_node.value.strip()
-            else:
-                raise NotImplementedError(doc_node)
+            # Only string constants are docstrings, e.g. a bare `...` or a number is not
+            if not (isinstance(doc_node, ast.Constant) and isinstance(doc_node.value, str)):
+                continue
 
-            info.description = docstring
+            info.description = doc_node.value.strip()
 
         except KeyError:
             pass
@@ -1528,20 +1527,7 @@ async def setup_mappings(*_, debug=False):
 
             for arg in args:
                 if hasattr(arg, '__es_type__'):
-                    result = {'type': arg.__es_type__}
-
-                    # Handle dense_vector specific parameters
-                    if arg.__es_type__ == 'dense_vector':
-                        field_info = next((f for f in model.model_fields.values()
-                                           if f.annotation == pydantic_type), None)
-                        if field_info and field_info.json_schema_extra:
-                            extra = field_info.json_schema_extra
-                            if 'dims' in extra:
-                                result['dims'] = extra['dims']
-                            if 'similarity' in extra:
-                                result['similarity'] = extra['similarity']
-
-                    return result
+                    return {'type': arg.__es_type__}
 
             raise ValueError('Union is not supported as ES field type!')
 
@@ -1616,20 +1602,7 @@ async def setup_mappings(*_, debug=False):
 
         # Is it an ESORM type?
         if hasattr(pydantic_type, '__es_type__'):
-            result = {'type': pydantic_type.__es_type__}
-
-            # Handle dense_vector specific parameters
-            if pydantic_type.__es_type__ == 'dense_vector':
-                field_info = next((f for f in model.model_fields.values()
-                                   if f.annotation == pydantic_type), None)
-                if field_info and field_info.json_schema_extra:
-                    extra = field_info.json_schema_extra
-                    if 'dims' in extra:
-                        result['dims'] = extra['dims']
-                    if 'similarity' in extra:
-                        result['similarity'] = extra['similarity']
-
-            return result
+            return {'type': pydantic_type.__es_type__}
 
         if issubclass(pydantic_type, AnyUrl):
             return {'type': 'keyword'}
@@ -1665,6 +1638,12 @@ async def setup_mappings(*_, debug=False):
                         v['index'] = extra['index']
                 else:
                     res['index'] = extra['index']
+            # Handle dense_vector specific parameters
+            if _type == 'dense_vector':
+                if 'dims' in extra:
+                    res['dims'] = extra['dims']
+                if 'similarity' in extra:
+                    res['similarity'] = extra['similarity']
             # Add subfields if specified
             if 'fields' in extra:
                 res['fields'] = extra['fields']
