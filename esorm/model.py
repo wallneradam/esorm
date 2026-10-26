@@ -797,6 +797,38 @@ class ESModel(ESBaseModel):
                               seq_no_primary_term=True, version=True,
                               **kwargs)
 
+    @classmethod
+    async def search_raw(cls: Type[TModel],
+                         query: Union[ESQuery, Query, None] = None,
+                         *,
+                         page_size: Optional[int] = None,
+                         page: Optional[int] = None,
+                         sort: Optional[Union[List[Any], str]] = None,
+                         routing: Optional[str] = None,
+                         aggs: Optional[Mapping[str, ESAgg]] = None,
+                         index: Optional[str] = None,
+                         **kwargs: Any) -> ESResponse:
+        """
+        Search with query dict or builder query, and return the raw ES response instead of models
+
+        It is useful if you need the hits themselves (e.g. `_seq_no`, `_score`, `highlight`) or the response without
+        the documents (e.g. `_source=False`). The default sort of the model, and the `Pagination` and `Sort`
+        decorators are applied, like in `search()`.
+
+        :param query: ElasticSearch query dict or builder query, if not set, all documents are matched
+        :param page_size: Pagination page size
+        :param page: Pagination page num, 1st page is 1
+        :param sort: Name of field to be sorted, or sort term list of dict, if not specified, model's default sort will
+                     be used, or no sorting
+        :param routing: Shard routing value
+        :param aggs: Aggregations
+        :param index: Index name, if not set, it will use the index from ESConfig
+        :param kwargs: Other search API params
+        :return: Raw ES response
+        """
+        return await cls._search(query, page_size=page_size, page=page, sort=sort, routing=routing, aggs=aggs,
+                                 index=index, **kwargs)
+
     # For type checkers search(), search_one(), scan() and scan_batches() are descriptors, see _model_methods.pyi:
     # PyCharm can't infer the type of their results if the query is a dict literal
     if TYPE_CHECKING:

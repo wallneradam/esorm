@@ -953,6 +953,25 @@ class TestBaseTests:
         assert res[0].f_nested.f_str == 'nested_test4'
         assert res[1].f_nested.f_str == 'nested_test5'
 
+    async def test_search_raw(self, es, esorm, model_nested):
+        """
+        Test raw search
+        """
+        res = await model_nested.search_raw({'match_all': {}}, sort='f_nested.f_int', _source=False)
+        hits = res['hits']['hits']
+        assert res['hits']['total']['value'] == 4
+        assert len(hits) == 4
+        assert '_source' not in hits[0]
+        assert '_seq_no' in hits[0] and '_primary_term' in hits[0]
+
+        # The Pagination and Sort decorators are applied
+        pagination = esorm.Pagination(page=2, page_size=2)
+        sort = esorm.Sort(sort=[{'f_nested.f_int': {'order': 'desc'}}])
+        res = await sort(pagination(model_nested)).search_raw()
+        hits = res['hits']['hits']
+        assert len(hits) == 2
+        assert [hit['_source']['f_nested']['f_int'] for hit in hits] == [3, 2]
+
     async def test_sort(self, es, esorm, model_nested):
         """
         Test sort

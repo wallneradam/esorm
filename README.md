@@ -67,6 +67,7 @@ the models, the queries and the results. It works with OpenSearch too.
     - [Aggregations](#aggregations)
     - [Pagination and sorting](#pagination-and-sorting)
     - [Iterating through all results (scan)](#iterating-through-all-results)
+    - [Raw search](#raw-search)
 - [🏗 Query builder](docs/query_builder.md#query-builder)
     - [Two ways to build a query: parameters and `with` blocks](docs/query_builder.md#two-ways-to-build-a-query)
     - [How `with` blocks work](docs/query_builder.md#how-with-blocks-work)
@@ -1404,6 +1405,23 @@ iteration are not visible. Sorting, the `Sort` decorator, `_source` and shard ro
 
 If the iteration may stop early (e.g. by `break`), wrap it in `contextlib.aclosing()` to close the point in time
 immediately. More details in [Iterating through large result sets](docs/advanced.md#iterating-through-large-result-sets).
+
+<a id="raw-search"></a>
+### Raw search
+
+`search()` returns models. If you need the raw ElasticSearch response, e.g. the metadata of the hits (`_score`,
+`_seq_no`, `highlight`) or the response without the documents (`_source=False`), use `search_raw()`. It has the query,
+pagination, sort, routing and index parameters of `search()` and an `aggs` parameter, the other keyword arguments are
+passed to the search API. The default sort of the model, the `Pagination` and `Sort` decorators are applied too:
+
+```python
+async def scores():
+    res = await User.search_raw({'match': {'name': 'John'}}, page_size=10, _source=False)
+    for hit in res['hits']['hits']:
+        print(hit['_id'], hit['_score'])
+```
+
+The models can be created from the hits with `User.from_es(hit)`.
 
 <a id="ide-support"></a>
 ## 🖥 IDE support and type checking
