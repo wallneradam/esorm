@@ -13,7 +13,7 @@ img.logo {
     display: none;
 }
 
-.toctree-l2 a[href="#table-of-contents"] {
+.toctree-l2 a[href$="#table-of-contents"] {
     display: none;
 }
 
@@ -40,4 +40,9 @@ html[data-theme="dark"] .class dt,
 html[data-theme="dark"] .attribute dt,
 html[data-theme="dark"] .exception dt {
     background: #18181a !important;
+}
+
+/* The Read the Docs flyout (version selector) is in the bottom right corner too, move the theme switcher above it */
+#themeSwitcher.theme-switcher {
+    bottom: 4.5em;
 }
