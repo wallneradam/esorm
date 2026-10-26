@@ -2,7 +2,22 @@
 
 # ESORM - Python ElasticSearch and OpenSearch ORM based on Pydantic
 
+<br clear="left"/>
+<div align="center">
+
 [![Tests](https://github.com/wallneradam/esorm/actions/workflows/tests.yml/badge.svg)](https://github.com/wallneradam/esorm/actions/workflows/tests.yml)
+[![PyPI](https://img.shields.io/pypi/v/pyesorm)](https://pypi.org/project/pyesorm/)
+[![Python versions](https://img.shields.io/pypi/pyversions/pyesorm)](https://pypi.org/project/pyesorm/)
+[![Downloads](https://img.shields.io/pepy/dt/pyesorm)](https://pepy.tech/projects/pyesorm)
+[![Documentation](https://img.shields.io/readthedocs/esorm)](https://esorm.readthedocs.io/en/latest/)
+[![License](https://img.shields.io/github/license/wallneradam/esorm)](https://github.com/wallneradam/esorm/blob/main/LICENSE)
+
+[![Elasticsearch](https://img.shields.io/badge/Elasticsearch-8.x%20%7C%209.x-005571?logo=elasticsearch)](#supported-elasticsearch-versions)
+[![OpenSearch](https://img.shields.io/badge/OpenSearch-2.19%20%7C%203.x-005EB8?logo=opensearch)](#supported-opensearch-versions)
+[![Checked with pyright](https://microsoft.github.io/pyright/img/pyright_badge.svg)](https://microsoft.github.io/pyright/)
+[![Checked with mypy](https://www.mypy-lang.org/static/mypy_badge.svg)](https://mypy-lang.org/)
+
+</div>
 
 ESORM is an ElasticSearch Object Relational Mapper (or Object Document Mapper, if you like) for Python, based on
 Pydantic. You define your documents as Pydantic models, and ESORM creates the indices and mappings, and saves, loads
