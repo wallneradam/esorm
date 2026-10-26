@@ -2,8 +2,8 @@
 This module contains the ESModel classes and related functions
 """
 from typing import (TypeVar, Any, Dict, Optional, Tuple, Type, Union, get_args, get_origin, List, Callable,
-                    Awaitable, AsyncGenerator, Literal, Mapping, ClassVar, TYPE_CHECKING, overload)
-from typing_extensions import TypedDict, Annotated
+                    Awaitable, Coroutine, AsyncGenerator, Literal, Mapping, ClassVar, TYPE_CHECKING, overload)
+from typing_extensions import TypedDict, Annotated, ParamSpec
 from enum import Enum, IntEnum
 
 import asyncio
@@ -87,6 +87,10 @@ _pydantic_type_map = {
 
 # TModel type variable
 TModel = TypeVar('TModel', bound='ESModel')
+
+# Parameters and return type of decorated functions
+_P = ParamSpec('_P')
+_R = TypeVar('_R')
 
 # Context variable to store the current recursion depth of lazy properties
 _lazy_property_recursion_depth: ContextVar[int] = ContextVar('_lazy_property_recursion_depth', default=0)
@@ -210,7 +214,7 @@ _patch_set_model_fields()
 # ElasticSearch models
 #
 
-def set_default_index_prefix(default_index_prefix: str):
+def set_default_index_prefix(default_index_prefix: str) -> None:
     """
     Set default index prefix we use for model and index creation
 
@@ -298,7 +302,7 @@ class ESBaseModel(BaseModel, metaclass=_ESModelMeta):
             _lazy_properties: Dict[str, Callable[['ESBaseModel'], Awaitable[Any]]] = {}
             """ Lazy property async function definitions """
 
-    model_config = ConfigDict(
+    model_config: ClassVar[ConfigDict] = ConfigDict(
         str_strip_whitespace=True,
         extra="forbid",
         populate_by_name=True,
@@ -307,7 +311,7 @@ class ESBaseModel(BaseModel, metaclass=_ESModelMeta):
         validate_assignment=True,
     )
 
-    async def calc_lazy_properties(self):
+    async def calc_lazy_properties(self) -> None:
         """
         (re)Calculate lazy properties
         """
@@ -391,8 +395,8 @@ class ESModel(ESBaseModel):
         return None
 
     @classmethod
-    async def call(cls: Type[TModel], method_name, *, index: Optional[str] = None,
-                   **kwargs: Any) -> Union[dict, ESResponse]:
+    async def call(cls: Type[TModel], method_name: str, *, index: Optional[str] = None,
+                   **kwargs: Any) -> Union[Dict[str, Any], ESResponse]:
         """
         Call an elasticsearch method
 
@@ -482,7 +486,7 @@ class ESModel(ESBaseModel):
     @classmethod
     def _recursive_exclude(cls: Type[TModel], m: BaseModel) -> Dict[str, Union[bool, dict]]:
         """ Recursively exclude computed fields """
-        _exclude: Dict[str, Union[bool, dict]] = {k: True for k in m.model_computed_fields.keys()}
+        _exclude: Dict[str, Union[bool, dict]] = {k: True for k in type(m).model_computed_fields.keys()}
         for k, v in m:
             if k in _exclude:
                 continue
@@ -492,7 +496,7 @@ class ESModel(ESBaseModel):
                     _exclude[k] = res
         return _exclude
 
-    def to_es(self, **kwargs: Any) -> dict:
+    def to_es(self, **kwargs: Any) -> Dict[str, Any]:
         """
         Generates a dictionary equivalent to what ElasticSearch returns in the '_source' property of a response.
 
@@ -548,7 +552,7 @@ class ESModel(ESBaseModel):
                     if isinstance(item, dict):
                         cls._recursive_convert_from_es(item, nested_model)
 
-    def update_from_es(self, data: Dict[str, Any]):
+    def update_from_es(self, data: Dict[str, Any]) -> None:
         """
         Update the model from ElasticSearch data
 
@@ -632,7 +636,7 @@ class ESModel(ESBaseModel):
 
         return obj
 
-    async def save(self, *, wait_for=False, refresh: Union[bool, Literal["wait_for"]] = False,
+    async def save(self, *, wait_for: bool = False, refresh: Union[bool, Literal["wait_for"]] = False,
                    pipeline: Optional[str] = None, routing: Optional[str] = None) -> str:
         """
         Save document into elasticsearch.
@@ -706,8 +710,8 @@ class ESModel(ESBaseModel):
         except ElasticNotFoundError:
             raise NotFoundError(f"Document with id {id} not found")
 
-    async def delete(self, *, wait_for=False, refresh: Union[bool, Literal["wait_for"]] = False,
-                     routing: Optional[str] = None):
+    async def delete(self, *, wait_for: bool = False, refresh: Union[bool, Literal["wait_for"]] = False,
+                     routing: Optional[str] = None) -> None:
         """
         Deletes document from ElasticSearch.
 
@@ -1263,8 +1267,8 @@ class ESModelTimestamp(ESModel):
     created_at: Optional[datetime] = Field(default=None, description="Creation date and time")
     modified_at: Optional[datetime] = Field(default_factory=utcnow, description="Modification date and time")
 
-    async def save(self, *, wait_for=False, refresh: Union[bool, Literal["wait_for"]] = False,
-                   force_new=False, pipeline: Optional[str] = None, routing: Optional[str] = None) -> str:
+    async def save(self, *, wait_for: bool = False, refresh: Union[bool, Literal["wait_for"]] = False,
+                   force_new: bool = False, pipeline: Optional[str] = None, routing: Optional[str] = None) -> str:
         """
         Save document into elasticsearch.
 
@@ -1295,7 +1299,7 @@ class ESModelTimestamp(ESModel):
 # Lazy properties
 #
 
-def set_max_lazy_property_concurrency(concurrency: int):
+def set_max_lazy_property_concurrency(concurrency: int) -> None:
     """
     Set the maximum concurrency of processing lazy properties
 
@@ -1348,7 +1352,7 @@ async def _lazy_process_results(res: Union[List[ESModel], ESModel, Dict[str, ESM
     return res
 
 
-def lazy_property(func: Callable[..., Awaitable[Any]]):
+def lazy_property(func: Callable[..., Awaitable[Any]]) -> property:
     """
     Decorator for lazy properties
 
@@ -1399,7 +1403,8 @@ def lazy_property(func: Callable[..., Awaitable[Any]]):
 # Optimistic concurrency control
 #
 
-def retry_on_conflict(max_retries=-1, *, reload_on_conflict=True):
+def retry_on_conflict(max_retries: int = -1, *, reload_on_conflict: bool = True) \
+        -> Callable[[Callable[_P, Awaitable[_R]]], Callable[_P, Coroutine[Any, Any, _R]]]:
     """
     Decorator for optimistic concurrency control
 
@@ -1409,9 +1414,9 @@ def retry_on_conflict(max_retries=-1, *, reload_on_conflict=True):
     :return: The decorated function
     """
 
-    def decorator(func: Callable):
+    def decorator(func: Callable[_P, Awaitable[_R]]) -> Callable[_P, Coroutine[Any, Any, _R]]:
         @wraps(func)
-        async def wrapper(*args, **kwargs: Any):
+        async def wrapper(*args: _P.args, **kwargs: _P.kwargs) -> _R:
             retries = 0
             while True:
                 try:
@@ -1573,7 +1578,7 @@ class Sort(BaseModel):
 async def create_index_template(name: str,
                                 *,
                                 prefix_name: str,
-                                shards=1, replicas=0,
+                                shards: int = 1, replicas: int = 0,
                                 **other_settings: Any) -> object:
     """
     Create index template
@@ -1599,7 +1604,7 @@ async def create_index_template(name: str,
     )
 
 
-async def setup_mappings(*_, debug=False):
+async def setup_mappings(*_: Any, debug: bool = False) -> None:
     """
     Create mappings for indices or try to extend it if there are new fields
     """

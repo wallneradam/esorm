@@ -1,3 +1,3 @@
 import logging
 
-logger = logging.getLogger('ESORM')
+logger: logging.Logger = logging.getLogger('ESORM')

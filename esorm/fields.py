@@ -6,8 +6,9 @@ from functools import cached_property
 from base64 import b64encode, b64decode
 
 from pydantic.fields import Field as PField
-from pydantic_core import core_schema, PydanticUndefined
-from pydantic import BaseModel
+from pydantic_core import core_schema, CoreSchema, PydanticUndefined
+from pydantic import BaseModel, GetCoreSchemaHandler, GetJsonSchemaHandler
+from pydantic.json_schema import JsonSchemaValue
 
 __all__ = (
     'Keyword', 'Text', 'Binary', 'Byte', 'Short', 'Integer', 'Long', 'UnsignedLong', 'HalfFloat', 'Float', 'Double',
@@ -29,7 +30,7 @@ class Keyword(str):
     __es_type__ = 'keyword'
 
     @classmethod
-    def __get_pydantic_core_schema__(cls, _, handler):
+    def __get_pydantic_core_schema__(cls, _: Any, handler: GetCoreSchemaHandler) -> CoreSchema:
         return core_schema.no_info_after_validator_function(cls, handler(str))
 
 
@@ -38,7 +39,7 @@ class Text(str):
     __es_type__ = 'text'
 
     @classmethod
-    def __get_pydantic_core_schema__(cls, _, handler):
+    def __get_pydantic_core_schema__(cls, _: Any, handler: GetCoreSchemaHandler) -> CoreSchema:
         return core_schema.no_info_after_validator_function(cls, handler(str))
 
 
@@ -49,16 +50,16 @@ class Binary(str):
     __es_type__ = 'binary'
 
     @classmethod
-    def __get_pydantic_core_schema__(cls, _, __):
+    def __get_pydantic_core_schema__(cls, _: Any, __: GetCoreSchemaHandler) -> CoreSchema:
         return core_schema.with_info_plain_validator_function(cls.validate_binary)
 
     @classmethod
-    def __get_pydantic_json_schema__(cls, _, handler):
+    def __get_pydantic_json_schema__(cls, _: CoreSchema, handler: GetJsonSchemaHandler) -> JsonSchemaValue:
         # Use the same schema that would be used for `str`
         return handler(core_schema.str_schema())
 
     @classmethod
-    def validate_binary(cls, v: Union[bytes, str], _) -> str:
+    def validate_binary(cls, v: Union[bytes, str], _: Any) -> str:
         if isinstance(v, bytes):
             v = b64encode(v).decode('ascii')  # noqa
         return cls(v)
@@ -73,7 +74,7 @@ class Byte(int):
     __es_type__ = 'byte'
 
     @classmethod
-    def __get_pydantic_core_schema__(cls, _, handler):
+    def __get_pydantic_core_schema__(cls, _: Any, handler: GetCoreSchemaHandler) -> CoreSchema:
         return core_schema.no_info_after_validator_function(cls, handler(int))
 
 
@@ -82,7 +83,7 @@ class Short(int):
     __es_type__ = 'short'
 
     @classmethod
-    def __get_pydantic_core_schema__(cls, _, handler):
+    def __get_pydantic_core_schema__(cls, _: Any, handler: GetCoreSchemaHandler) -> CoreSchema:
         return core_schema.no_info_after_validator_function(cls, handler(int))
 
 
@@ -91,7 +92,7 @@ class Integer(int):
     __es_type__ = 'integer'
 
     @classmethod
-    def __get_pydantic_core_schema__(cls, _, handler):
+    def __get_pydantic_core_schema__(cls, _: Any, handler: GetCoreSchemaHandler) -> CoreSchema:
         return core_schema.no_info_after_validator_function(cls, handler(int))
 
 
@@ -100,7 +101,7 @@ class Long(int):
     __es_type__ = 'long'
 
     @classmethod
-    def __get_pydantic_core_schema__(cls, _, handler):
+    def __get_pydantic_core_schema__(cls, _: Any, handler: GetCoreSchemaHandler) -> CoreSchema:
         return core_schema.no_info_after_validator_function(cls, handler(int))
 
 
@@ -109,7 +110,7 @@ class UnsignedLong(int):
     __es_type__ = 'unsigned_long'
 
     @classmethod
-    def __get_pydantic_core_schema__(cls, _, handler):
+    def __get_pydantic_core_schema__(cls, _: Any, handler: GetCoreSchemaHandler) -> CoreSchema:
         def validate_unsigned(value: int) -> int:
             if value < 0:
                 raise ValueError("Value must be an unsigned long!")
@@ -126,7 +127,7 @@ class HalfFloat(float):
     __es_type__ = 'half_float'
 
     @classmethod
-    def __get_pydantic_core_schema__(cls, _, handler):
+    def __get_pydantic_core_schema__(cls, _: Any, handler: GetCoreSchemaHandler) -> CoreSchema:
         return core_schema.no_info_after_validator_function(float, handler(float))
 
 
@@ -135,7 +136,7 @@ class Float(float):
     __es_type__ = 'float'
 
     @classmethod
-    def __get_pydantic_core_schema__(cls, _, handler):
+    def __get_pydantic_core_schema__(cls, _: Any, handler: GetCoreSchemaHandler) -> CoreSchema:
         return core_schema.no_info_after_validator_function(float, handler(float))
 
 
@@ -144,7 +145,7 @@ class Double(float):
     __es_type__ = 'double'
 
     @classmethod
-    def __get_pydantic_core_schema__(cls, _, handler):
+    def __get_pydantic_core_schema__(cls, _: Any, handler: GetCoreSchemaHandler) -> CoreSchema:
         return core_schema.no_info_after_validator_function(float, handler(float))
 
 
@@ -160,7 +161,7 @@ class LatLon(BaseModel):
     """Longitude Coordinate"""
 
 
-class DenseVector(list):
+class DenseVector(List[float]):
     """
     Dense Vector Field - A list of floats for vector similarity search in Elasticsearch
 
@@ -169,7 +170,7 @@ class DenseVector(list):
     __es_type__ = 'dense_vector'
 
     @classmethod
-    def __get_pydantic_core_schema__(cls, _, handler):
+    def __get_pydantic_core_schema__(cls, _: Any, handler: GetCoreSchemaHandler) -> CoreSchema:
         def validate_vector(values: List[float]) -> 'DenseVector':
             """Validate vector values"""
             if not all(isinstance(x, (int, float)) for x in values):
@@ -182,7 +183,7 @@ class DenseVector(list):
         )
 
     @classmethod
-    def __get_pydantic_json_schema__(cls, _, handler):
+    def __get_pydantic_json_schema__(cls, _: CoreSchema, handler: GetJsonSchemaHandler) -> JsonSchemaValue:
         # Use the same schema that would be used for `list`
         return handler(core_schema.list_schema(core_schema.float_schema()))
 

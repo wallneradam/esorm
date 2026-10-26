@@ -1,7 +1,9 @@
 """
 Bulk operation for ElasticSearch
 """
-from typing import Any, Union, Literal
+from typing import Any, Optional, Type, Union, Literal
+from types import TracebackType
+from typing_extensions import Self
 
 from .error import BulkError, BulkOperationError
 from .utils import utcnow, datetime_to_es
@@ -15,7 +17,7 @@ class ESBulk:
     Bulk operation for ElasticSearch
     """
 
-    def __init__(self, wait_for=False, refresh: Union[bool, Literal["wait_for"]] = False, **bulk_kwargs: Any):
+    def __init__(self, wait_for: bool = False, refresh: Union[bool, Literal["wait_for"]] = False, **bulk_kwargs: Any):
         """
         Create a bulk context manager
 
@@ -34,10 +36,11 @@ class ESBulk:
         elif wait_for:
             self._bulk_kwargs['refresh'] = 'wait_for'
 
-    async def __aenter__(self):
+    async def __aenter__(self) -> Self:
         return self
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
+    async def __aexit__(self, exc_type: Optional[Type[BaseException]], exc_val: Optional[BaseException],
+                        exc_tb: Optional[TracebackType]) -> bool:
         """
         Do the bulk operation
         :param exc_type: Exception type
@@ -74,7 +77,7 @@ class ESBulk:
         return False
 
     # noinspection PyProtectedMember
-    async def save(self, model: ESModel):
+    async def save(self, model: ESModel) -> None:
         """
         Add the model to the bulk for saving
 
@@ -119,7 +122,7 @@ class ESBulk:
         self._actions.append({'index': index})
         self._actions.append(document)
 
-    async def delete(self, model: ESModel):
+    async def delete(self, model: ESModel) -> None:
         """
         Add the model to the bulk for deletion
 

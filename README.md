@@ -1412,7 +1412,8 @@ ESORM has type hints everywhere (it is a [PEP 561](https://peps.python.org/pep-0
 autocomplete and check the models, the queries, the aggregations and the results. The type hints are tested with
 [pyright](https://github.com/microsoft/pyright) (used by Pylance in VS Code and Cursor) and
 [mypy](https://mypy-lang.org/) in the CI (`tests/typecheck`): correct code must not produce any warnings, and the
-typical mistakes must be reported.
+typical mistakes must be reported. The public API is checked in pyright's strict mode too, so no unknown types leak
+into your code.
 
 <a id="type-checking"></a>
 ### Type checking of queries and aggregations
