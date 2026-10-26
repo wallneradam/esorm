@@ -96,7 +96,7 @@ def _compat_transport_class(transport_class: Type[AsyncTransport]) -> Type[Async
 
 
 # Global client proxy
-es = cast(AsyncElasticsearch, _ESProxy())
+es: AsyncElasticsearch = cast(AsyncElasticsearch, _ESProxy())
 
 Backend = Literal['elasticsearch', 'opensearch']
 """ Type of the server ESORM is connected to """
@@ -152,7 +152,8 @@ def _opensearch_kwargs(kwargs: Dict[str, Any]) -> Dict[str, Any]:
 
 
 async def connect(hosts: Union[str, Union[List[Union[str, Mapping[str, Union[str, int]], NodeConfig]], None]],
-                  *args, wait=False, backend: Optional[Backend] = None, **kwargs: Any) -> Optional[AsyncElasticsearch]:
+                  *args: Any, wait: bool = False, backend: Optional[Backend] = None,
+                  **kwargs: Any) -> Optional[AsyncElasticsearch]:
     """
     Connect to ElasticSearch or OpenSearch
 

@@ -27,7 +27,7 @@ __all__ = [
 # Pagination and sort dependencies
 #
 
-def set_max_page_size(max_page_size: int):
+def set_max_page_size(max_page_size: int) -> None:
     """
     Set the maximum page size for queries
 
@@ -77,7 +77,7 @@ def make_dep_pagination(default_page: int = 1, default_page_size: int = 10,
     return _dep_pagination
 
 
-def make_dep_sort(**kwargs: Union[List[Dict[str, dict]], Dict[str, Any]]) -> Callable[..., Awaitable[Sort]]:
+def make_dep_sort(**kwargs: Union[List[Dict[str, Dict[str, Any]]], Dict[str, Any]]) -> Callable[..., Awaitable[Sort]]:
     """
     Create a sort dependency with sort definitions
 
