@@ -97,6 +97,58 @@ _lazy_property_semaphore: ContextVar[asyncio.Semaphore] = ContextVar('_lazy_prop
 
 
 #
+# Field annotation helpers
+#
+
+def _unwrap_optional(annotation: Any) -> Any:
+    """
+    Remove Optional (Union[..., None], ... | None) and Annotated from a field annotation
+
+    :param annotation: The field annotation
+    :return: The inner type, or the annotation itself if it is not Optional / Annotated
+    """
+    while True:
+        origin = get_origin(annotation)
+        if origin is Annotated:
+            annotation = get_args(annotation)[0]
+            continue
+        # UnionType is the type of `X | None` in newer Pythons
+        if origin is Union or getattr(origin, '__name__', None) == 'UnionType':
+            args = [arg for arg in get_args(annotation) if arg is not type(None)]
+            if len(args) == 1:
+                annotation = args[0]
+                continue
+        return annotation
+
+
+def _sub_annotation(annotation: Any) -> Any:
+    """
+    Get the annotation of the values in the stored data: the item type of list fields, the type itself otherwise
+
+    :param annotation: The field annotation
+    :return: The unwrapped annotation of the (item) values
+    """
+    annotation = _unwrap_optional(annotation)
+    if get_origin(annotation) is list:
+        args = get_args(annotation)
+        return _unwrap_optional(args[0]) if args else Any
+    return annotation
+
+
+def _nested_model_class(annotation: Any) -> Optional[Type[BaseModel]]:
+    """
+    Get the nested model class from a field annotation (also from Optional and List annotations)
+
+    :param annotation: The field annotation
+    :return: The nested model class or None if the field is not a nested model
+    """
+    annotation = _sub_annotation(annotation)
+    if inspect.isclass(annotation) and issubclass(annotation, BaseModel):
+        return annotation
+    return None
+
+
+#
 # Monkey patching to support field descriptions from docstrings
 #
 
@@ -360,49 +412,72 @@ class ESModel(ESBaseModel):
         return await method(index=index, **kwargs)
 
     @classmethod
-    def _recursive_convert_to_es(cls: Type[TModel], data: dict, _level=0):
-        """ Recursively modify data for Elasticsearch """
+    def _recursive_convert_to_es(cls: Type[TModel], data: dict, _level=0,
+                                 _model: Optional[Type[BaseModel]] = None):
+        """
+        Recursively modify data for Elasticsearch
+
+        :param data: The dumped model data, modified in place
+        :param _level: The recursion level, 0 is the document itself
+        :param _model: The model class of a nested dict, None if it is not a model (e.g. a Dict field)
+        """
+        if _level == 0:
+            _model = cls
+        # Update the timestamps of nested ESModelTimestamp models, the document itself is updated by save()
+        elif _model is not None and issubclass(_model, ESModelTimestamp) and 'modified_at' in data:
+            data['modified_at'] = utcnow()
+            if 'created_at' in data and data['created_at'] is None:
+                data['created_at'] = data['modified_at']
+
+        fields = _model.model_fields if _model is not None else {}
         for k, v in data.items():
-            # Encode datetime fields
-            if isinstance(v, datetime):
-                # Update ESTimestamp fields
-                if _level != 0 and k == 'modified_at':
-                    v = utcnow()
-                elif _level != 0 and k == 'created_at' and v is None:
-                    v = utcnow()
-                data[k] = datetime_to_es(v)
+            field = fields.get(k)
+            data[k] = cls._convert_value_to_es(v, _level, _nested_model_class(field.annotation) if field else None)
 
-            # Convert date fields
-            elif isinstance(v, date):
-                data[k] = v.isoformat()
+    @classmethod
+    def _convert_value_to_es(cls: Type[TModel], v: Any, _level: int, _model: Optional[Type[BaseModel]]) -> Any:
+        """ Convert a single value (or the items of a list) for Elasticsearch """
+        # Encode datetime fields
+        if isinstance(v, datetime):
+            return datetime_to_es(v)
 
-            # Convert time fields
-            elif isinstance(v, time):
-                data[k] = time_to_es(v)
+        # Convert date fields
+        elif isinstance(v, date):
+            return v.isoformat()
 
-            # Convert UUID, Path, Url fields
-            elif isinstance(v, UUID) or isinstance(v, Path) or isinstance(v, Url):
-                data[k] = str(v)
+        # Convert time fields
+        elif isinstance(v, time):
+            return time_to_es(v)
 
-            # Convert IPvAnyAddress fields
-            elif isinstance(v, IPv4Address) or isinstance(v, IPv6Address):
-                data[k] = str(v)
+        # Convert UUID, Path, Url fields
+        elif isinstance(v, UUID) or isinstance(v, Path) or isinstance(v, Url):
+            return str(v)
 
-            # Convert AnyUrl fields
-            elif isinstance(v, AnyUrl):
-                data[k] = str(v)
+        # Convert IPvAnyAddress fields
+        elif isinstance(v, IPv4Address) or isinstance(v, IPv6Address):
+            return str(v)
 
-            # Convert IntEnum fields
-            elif isinstance(v, IntEnum):
-                data[k] = v.value
+        # Convert AnyUrl fields
+        elif isinstance(v, AnyUrl):
+            return str(v)
 
-            # Convert Enum or StrEnum fields
-            elif isinstance(v, Enum):
-                data[k] = str(v.value)
+        # Convert IntEnum fields
+        elif isinstance(v, IntEnum):
+            return v.value
 
-            # Convert subclasses
-            elif isinstance(v, dict):
-                cls._recursive_convert_to_es(v, _level + 1)
+        # Convert Enum or StrEnum fields
+        elif isinstance(v, Enum):
+            return str(v.value)
+
+        # Convert subclasses
+        elif isinstance(v, dict):
+            cls._recursive_convert_to_es(v, _level + 1, _model)
+
+        # Convert list items (e.g. List[NestedModel], List[time])
+        elif isinstance(v, list):
+            return [cls._convert_value_to_es(item, _level, _model) for item in v]
+
+        return v
 
     @classmethod
     def _recursive_exclude(cls: Type[TModel], m: BaseModel) -> Dict[str, Union[bool, dict]]:
@@ -440,21 +515,38 @@ class ESModel(ESBaseModel):
         return d
 
     @classmethod
-    def _recursive_convert_from_es(cls: Type[TModel], data: dict):
-        """ Recursively convert data from Elasticsearch """
+    def _recursive_convert_from_es(cls: Type[TModel], data: dict, _model: Optional[Type[BaseModel]] = None):
+        """
+        Recursively convert data from Elasticsearch
+
+        :param data: The document source, modified in place
+        :param _model: The model class of a nested dict, the class itself if None
+        """
+        fields = (_model or cls).model_fields
         for k, v in data.items():
-            try:
-                field = cls.model_fields[k]
-                # Convert time fields
-                if field.annotation == time and isinstance(v, str):
+            field = fields.get(k)
+            if field is None:
+                continue
+            annotation = _sub_annotation(field.annotation)
+
+            # Convert time fields (also Optional[time] and List[time])
+            if annotation is time:
+                if isinstance(v, str):
                     data[k] = time_from_es(v)
+                elif isinstance(v, list):
+                    data[k] = [time_from_es(item) if isinstance(item, str) else item for item in v]
+                continue
 
-                # Dict fields
-                elif isinstance(v, dict):
-                    cls._recursive_convert_from_es(v)
-
-            except KeyError:
-                pass
+            # Nested models (also Optional and List of nested models)
+            nested_model = _nested_model_class(annotation)
+            if nested_model is None:
+                continue
+            if isinstance(v, dict):
+                cls._recursive_convert_from_es(v, nested_model)
+            elif isinstance(v, list):
+                for item in v:
+                    if isinstance(item, dict):
+                        cls._recursive_convert_from_es(item, nested_model)
 
     def update_from_es(self, data: Dict[str, Any]):
         """
@@ -472,11 +564,14 @@ class ESModel(ESBaseModel):
         if not source or not _id:
             raise InvalidResponseError
 
-        for k, v in source.items():
-            if k in self.__pydantic_fields_set__:
-                setattr(self, k, v)
-
+        # Convert before setting the fields, because they are validated on assignment
         self._recursive_convert_from_es(source)
+
+        fields = type(self).model_fields
+        for k, v in source.items():
+            # Not only the explicitly set fields, the ones with default value may be changed in ES too
+            if k in fields:
+                setattr(self, k, v)
 
         # Set routing field
         _routing = data.get("_routing", None)
