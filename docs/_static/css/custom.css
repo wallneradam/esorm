@@ -44,5 +44,5 @@ html[data-theme="dark"] .exception dt {
 
 /* The Read the Docs flyout (version selector) is in the bottom right corner too, move the theme switcher above it */
 #themeSwitcher.theme-switcher {
-    bottom: 4.5em;
+    bottom: 6em;
 }
