@@ -30,6 +30,9 @@ async def rename(item_id: str, name: str) -> Item:
 
 async def usage() -> None:
     client: Optional[AsyncElasticsearch] = await connect('http://localhost:9200', wait=True)
+    hosts: List[str] = ['http://es1:9200', 'http://es2:9200']
+    await connect(hosts)
+    await connect(('http://es1:9200', {'host': 'es2', 'port': 9200}))
     print(client, es)
     await setup_mappings(debug=True)
     set_max_page_size(100)
@@ -38,6 +41,8 @@ async def usage() -> None:
     doc: Dict[str, Any] = item.to_es()
     res = await Item.call('get', id='1')
     print(doc, res)
+    loaded: Item = Item.from_es({'_id': '1', '_source': {'name': 'name'}})
+    print(loaded.name)
 
     async with ESBulk(wait_for=True) as bulk:
         await bulk.save(item)

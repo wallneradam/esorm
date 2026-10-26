@@ -592,16 +592,16 @@ class ESModel(ESBaseModel):
         setattr(self, '_seq_no', _seq_no)
 
     @classmethod
-    def from_es(cls: Type[TModel], data: Union[Dict[str, Any], Hit]) -> Optional[TModel]:
+    def from_es(cls: Type[TModel], data: Union[Dict[str, Any], Hit]) -> TModel:
         """
         Returns an ESModel from an elasticsearch document that has _id, _source
 
         :param data: Elasticsearch document that has _id, _source
-        :raises esorm.error.InvalidResponseError: Returned when _id or _source is missing from data
+        :raises esorm.error.InvalidResponseError: Returned when data is empty, or _id or _source is missing from it
         :return: The ESModel instance
         """
         if not data:
-            return None
+            raise InvalidResponseError
 
         source: Optional[dict] = data.get("_source", None)
         # Get id field
@@ -1423,7 +1423,7 @@ def retry_on_conflict(max_retries: int = -1, *, reload_on_conflict: bool = True)
                     return await func(*args, **kwargs)
                 except (ElasticConflictError, ESORMConflictError):
                     # Reload the document if it is a method of ESModel
-                    if reload_on_conflict and isinstance(args[0], ESModel):
+                    if reload_on_conflict and args and isinstance(args[0], ESModel):
                         await args[0].reload()
                     # Retry if max_retries is not reached
                     if max_retries == -1 or retries < max_retries:
@@ -1473,7 +1473,7 @@ class Pagination(BaseModel):
             @classmethod
             async def _search(cls, query: Union[ESQuery, Query, None], *,
                               page_size: Optional[int] = None,
-                              page: int = None,
+                              page: Optional[int] = None,
                               sort: Optional[Union[List[Any], str]] = None,
                               **kwargs: Any) -> ESResponse:
                 page_size = self.page_size if page_size is None else page_size
@@ -1541,7 +1541,7 @@ class Sort(BaseModel):
             @classmethod
             async def _search(cls, query: Union[ESQuery, Query, None], *,
                               page_size: Optional[int] = None,
-                              page: int = None,
+                              page: Optional[int] = None,
                               sort: Optional[Union[List[Any], str]] = None,
                               **kwargs: Any) -> ESResponse:
                 sort = self.sort if sort is None else sort
