@@ -73,10 +73,12 @@ latex_use_xindy = False
 # The Markdown files are written for GitHub: the link targets are HTML anchors (<a id="..."></a>), and
 # the README links to the files in docs/. Sphinx knows neither, so when the files are included, the
 # anchors are converted to MyST targets, and the links between the files to target links, which MyST
-# resolves across the documents. The badges are left out, the PDF can't show SVG images.
+# resolves across the documents. The badges are left out, the PDF can't show SVG images. The image paths
+# are relative to the repository root, the static files are in the root of the built documentation.
 
 _HTML_ANCHOR = re.compile(r'^<a id="([^"]+)"></a>[ \t]*$', re.MULTILINE)
 _FILE_LINK = re.compile(r'\]\((?:docs/|\.\./)?(?:README|advanced|query_builder)\.md(#[^)\s]+)\)')
+_ROOT_STATIC = re.compile(r'(src|href)="docs/_static/')
 _BADGE = re.compile(r'^\[!\[[^\]]*\]\([^)]*\)\]\([^)]*\)[ \t]*\n', re.MULTILINE)
 
 
@@ -84,6 +86,7 @@ def _prepare_markdown(_app, relative_path, _parent_docname, content):
     if relative_path.suffix == '.md':
         text = _HTML_ANCHOR.sub(r'(\1)=', content[0])
         text = _FILE_LINK.sub(r'](\1)', text)
+        text = _ROOT_STATIC.sub(r'\1="_static/', text)
         content[0] = _BADGE.sub('', text)
 
 
