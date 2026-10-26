@@ -187,7 +187,7 @@ The Python types are mapped to these ElasticSearch types:
 | `int`               | `long`    |                                 |
 | `float`             | `double`  |                                 |
 | `bool`              | `boolean` |                                 |
-| `datetime.datetime` | `date`    |                                 |
+| `datetime.datetime` | `date`    | Stored in UTC                   |
 | `datetime.date`     | `date`    |                                 |
 | `datetime.time`     | `date`    | Stored as 1970-01-01 + the time |
 | `typing.Literal`    | `keyword` |                                 |
@@ -199,7 +199,17 @@ The Python types are mapped to these ElasticSearch types:
 Note that `str` is mapped to `keyword`, which is for exact values. For full text search use the `text` type of
 `esorm.fields` (see below).
 
-Use UTC datetimes: the timezone is removed from the value without conversion, and the value is stored as UTC.
+Datetimes and times are always stored in UTC, as ElasticSearch does:
+- Timezone aware values are converted to UTC, so the stored value is the same instant.
+- Naive values (without timezone) are treated as UTC, they are stored as they are. So if you use naive
+  datetimes, use UTC ones (e.g. `datetime.now(timezone.utc)` instead of `datetime.now()`).
+- Loaded datetimes are timezone aware UTC datetimes, even if a naive one was saved. Python can't compare
+  naive and aware datetimes (`<`, `>` raise `TypeError`, `==` is always `False`), so compare them with aware ones.
+  `esorm.utils.utcnow()` gives the current time as an aware UTC datetime.
+- Loaded times are naive UTC times.
+
+Queries (e.g. `Range`) get datetimes the same way: aware ones are interpreted with their timezone, naive ones
+as UTC (unless the `time_zone` parameter of the query says otherwise).
 
 Some Pydantic types are supported too:
 

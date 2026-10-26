@@ -4,7 +4,7 @@ Bulk operation for ElasticSearch
 from typing import Any, Union, Literal
 
 from .error import BulkError, BulkOperationError
-from .utils import utcnow
+from .utils import utcnow, datetime_to_es
 
 from .model import ESModel, ESModelTimestamp
 from .esorm import es
@@ -107,7 +107,7 @@ class ESBulk:
 
         # Support for ESModelTimestamp
         if isinstance(model, ESModelTimestamp):
-            document['modified_at'] = utcnow()
+            document['modified_at'] = datetime_to_es(utcnow())
             # Support for created_at field
             if not model.created_at:
                 document['created_at'] = document['modified_at']
