@@ -935,7 +935,9 @@ concurrency control), see [Optimistic concurrency control](docs/advanced.md#opti
 #### Partial update
 
 `save()` replaces the whole document. `update()` sends only the fields which were loaded from ElasticSearch or set (in
-the constructor or later), also in nested models, and ElasticSearch keeps the other fields of the document:
+the constructor or later), also in nested models, and ElasticSearch keeps the other fields of the document. Changes
+made in place are sent too: nested models with set fields (e.g. created by a default factory), and lists, dicts and
+sets which differ from their default:
 
 ```python
 from esorm import ESModel
@@ -954,7 +956,7 @@ async def rename_user(user_id: str):
     await user.update()
 ```
 
-A model loaded with only some fields (with the `_source` parameter, or `_source_includes`, `_source_excludes`) can't
+A model loaded with only some fields (with the `_source` parameter, `_source_includes`, `_source_excludes`, or `_source` in the request `body`) can't
 be saved, because the other fields would be overwritten with their defaults. `save()` raises
 `esorm.PartialDocumentError` for it, use `update()` instead, or load the whole document with `reload()` first.
 

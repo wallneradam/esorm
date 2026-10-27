@@ -24,7 +24,7 @@ from pydantic.fields import Field, PrivateAttr
 from pydantic.fields import FieldInfo  # It is just not in __all__ of pydantic.fields, but we strongly need it
 # noinspection PyProtectedMember
 from pydantic._internal import _model_construction  # The metaclass and field collection of pydantic models
-from pydantic_core import Url
+from pydantic_core import Url, PydanticUndefined
 from pydantic.networks import IPvAnyAddress
 from pydantic import AnyUrl
 
@@ -164,9 +164,42 @@ def _is_source_filtered(_source: Any, kwargs: Dict[str, Any]) -> bool:
     :param kwargs: The other parameters of the request
     :return: True if only some fields of the documents are returned
     """
-    if any(source is not None and source is not True for source in (_source, kwargs.get('source'))):
+    body = kwargs.get('body') or {}
+    if any(source is not None and source is not True
+           for source in (_source, kwargs.get('source'), body.get('_source'), body.get('source'))):
         return True
     return any(kwargs.get(param) or kwargs.get('_' + param) for param in _SOURCE_FILTER_PARAMS)
+
+
+def _mark_modified_fields(model: BaseModel) -> bool:
+    """
+    Add the fields which were modified in place to the set fields of the model (recursively), so they are not
+    skipped by `exclude_unset`: nested models with set fields (e.g. created by a default factory), and lists, dicts
+    and sets which differ from their default (e.g. appended to)
+
+    :param model: The model, its set fields are modified
+    :return: True if the model has any set fields
+    """
+    fields_set = model.__pydantic_fields_set__
+    for name, field in type(model).model_fields.items():
+        value = getattr(model, name, None)
+        items = value if isinstance(value, (list, tuple)) else (value,)
+        # All nested models must be marked, also the ones in set fields
+        nested_set = [_mark_modified_fields(item) for item in items if isinstance(item, BaseModel)]
+        if name in fields_set:
+            continue
+        if any(nested_set):
+            fields_set.add(name)
+        elif isinstance(value, (list, dict, set)):
+            if field.default_factory in (list, dict, set):
+                default = field.default_factory()
+            elif field.default_factory is None and field.default is not PydanticUndefined:
+                default = field.default
+            else:
+                continue
+            if value != default:
+                fields_set.add(name)
+    return bool(fields_set)
 
 
 #
@@ -734,8 +767,12 @@ class ESModel(ESBaseModel):
         Generates the partial document for an update: only the fields which were loaded from ElasticSearch or set
         (in the constructor or later), also in nested models. The id field is not included.
 
+        Changes made in place are detected too: nested models with set fields (e.g. created by a default factory),
+        and lists, dicts and sets which differ from their default.
+
         :return: The partial document for ElasticSearch
         """
+        _mark_modified_fields(self)
         document = self.to_es(exclude_unset=True)
         if self.ESConfig.id_field:
             document.pop(self.ESConfig.id_field, None)

@@ -1228,6 +1228,8 @@ class TestBaseTests:
             await PartialSaveModel.search_one_by_fields(dict(_id=doc_id), _source_includes=['f_str']),
             (await PartialSaveModel.search_by_fields(dict(_id=doc_id), _source='f_str', res_dict=True))[doc_id],
             [d async for d in PartialSaveModel.scan(_source=['f_str'])][0],
+            await PartialSaveModel.search_one({'ids': {'values': [doc_id]}}, sort='f_str', aggs={},
+                                             body={'_source': ['f_str']}),
         ]
         for partial_doc in partial_docs:
             assert partial_doc._partial
@@ -1319,6 +1321,29 @@ class TestBaseTests:
         assert exc_info.value.failed_operations[0]['type'] == 'version_conflict_engine_exception'
         doc = await PartialUpdateModel.get(doc_id)
         assert (doc.f_int, doc.f_str, doc.f_nested.f_str, doc.f_nested.f_int) == (3, 'c', 'm', 5)
+
+        # Nested models and lists changed in place, which were not loaded
+        from pydantic import Field
+
+        class PartialProfile(esorm.ESBaseModel):
+            city: str = 'Paris'
+            zip: str = '1000'
+
+        class PartialInPlaceModel(esorm.ESModel):
+            name: str = ''
+            profile: PartialProfile = Field(default_factory=PartialProfile)
+            tags: List[str] = []
+
+        await esorm.setup_mappings()
+
+        doc = PartialInPlaceModel(name='a', profile=PartialProfile(city='Paris', zip='1111'), tags=['x'])
+        doc_id = await doc.save(refresh=True)
+        partial_doc = await PartialInPlaceModel.get(doc_id, _source=['name'])
+        partial_doc.profile.city = 'Rome'
+        partial_doc.tags.append('y')
+        await partial_doc.update(refresh=True)
+        doc = await PartialInPlaceModel.get(doc_id)
+        assert (doc.name, doc.profile.city, doc.profile.zip, doc.tags) == ('a', 'Rome', '1111', ['y'])
 
         # Non-existing document
         missing = PartialUpdateModel(f_nested=model_timestamp(f_str='n'))
