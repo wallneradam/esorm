@@ -202,6 +202,29 @@ def _mark_modified_fields(model: BaseModel) -> bool:
     return bool(fields_set)
 
 
+def _merge_search_body(params: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Move the fields of the `body` parameter of a search request to keyword arguments
+
+    The elasticsearch client would send the unset (None) parameters as null in the body, which ElasticSearch rejects.
+
+    :param params: The keyword arguments of the search request
+    :raises ValueError: Returned when a field is given in the body and as a parameter with different values
+    :return: The keyword arguments without `body`
+    """
+    body = params.pop('body', None)
+    if body is None:
+        return params
+    params = {k: v for k, v in params.items() if v is not None}
+    for key, value in body.items():
+        key = 'from_' if key == 'from' else key
+        if key in params and params[key] != value:
+            raise ValueError(f"Received multiple values for '{key}', specify it either in the body or as a "
+                             f"parameter, not both!")
+        params[key] = value
+    return params
+
+
 #
 # Monkey patching to support field descriptions from docstrings
 #
@@ -920,13 +943,14 @@ class ESModel(ESBaseModel):
         if page_size is not None and page is None:
             page = 1
 
-        return await cls.call('search', query=query,
-                              from_=((page - 1) * page_size) if page_size is not None else 0,
-                              size=page_size, sort=sort, routing=routing,
-                              aggs=aggs,
-                              index=index,
-                              seq_no_primary_term=True, version=True,
-                              **kwargs)
+        return await cls.call('search', **_merge_search_body(dict(
+            query=query,
+            from_=((page - 1) * page_size) if page_size is not None else None,
+            size=page_size, sort=sort, routing=routing,
+            aggs=aggs,
+            index=index,
+            seq_no_primary_term=True, version=True,
+            **kwargs)))
 
     @classmethod
     async def search_raw(cls: Type[TModel],
@@ -1223,10 +1247,11 @@ class ESModel(ESBaseModel):
                 while True:
                     try:
                         # The index must not be set, it comes from the point in time
-                        res = await es.search(pit={'id': pit_id, 'keep_alive': keep_alive}, query=query,
-                                              size=batch_size, sort=sort, search_after=search_after,
-                                              track_total_hits=False, seq_no_primary_term=True, version=True,
-                                              _source=_source, **kwargs)
+                        res = await es.search(**_merge_search_body(dict(
+                            pit={'id': pit_id, 'keep_alive': keep_alive}, query=query,
+                            size=batch_size, sort=sort, search_after=search_after,
+                            track_total_hits=False, seq_no_primary_term=True, version=True,
+                            _source=_source, **kwargs)))
                     except elasticsearch.BadRequestError as e:
                         # Older OpenSearch versions (2.x) don't support _shard_doc, _id is used instead
                         if search_after is None and is_opensearch() and '_shard_doc' in str(e.body):

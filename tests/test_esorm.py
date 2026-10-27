@@ -972,6 +972,18 @@ class TestBaseTests:
         assert len(hits) == 2
         assert [hit['_source']['f_nested']['f_int'] for hit in hits] == [3, 2]
 
+        # Search parameters in the body
+        res = await model_nested.search_raw(body={
+            'query': {'match_all': {}}, 'sort': [{'f_nested.f_int': {'order': 'asc'}}], 'from': 1, 'size': 2,
+            'aggs': {'max_int': {'max': {'field': 'f_nested.f_int'}}},
+        })
+        hits = res['hits']['hits']
+        assert [hit['_source']['f_nested']['f_int'] for hit in hits] == [3, 4]
+        assert res['aggregations']['max_int']['value'] == 5
+        assert '_seq_no' in hits[0]
+        with pytest.raises(ValueError):
+            await model_nested.search_raw({'match_all': {}}, body={'query': {'term': {'f_float': 1.0}}})
+
     async def test_sort(self, es, esorm, model_nested):
         """
         Test sort
@@ -1228,8 +1240,10 @@ class TestBaseTests:
             await PartialSaveModel.search_one_by_fields(dict(_id=doc_id), _source_includes=['f_str']),
             (await PartialSaveModel.search_by_fields(dict(_id=doc_id), _source='f_str', res_dict=True))[doc_id],
             [d async for d in PartialSaveModel.scan(_source=['f_str'])][0],
-            await PartialSaveModel.search_one({'ids': {'values': [doc_id]}}, sort='f_str', aggs={},
-                                             body={'_source': ['f_str']}),
+            await PartialSaveModel.search_one({'ids': {'values': [doc_id]}}, body={'_source': ['f_str']}),
+            (await PartialSaveModel.search(None, body={'query': {'ids': {'values': [doc_id]}},
+                                                       '_source': ['f_str']}))[0],
+            [d async for d in PartialSaveModel.scan(body={'_source': ['f_str']})][0],
         ]
         for partial_doc in partial_docs:
             assert partial_doc._partial
