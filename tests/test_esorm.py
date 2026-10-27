@@ -1,5 +1,5 @@
 import asyncio
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, List, Optional
 import os
 import sys
 import pytest
@@ -1201,6 +1201,196 @@ class TestBaseTests:
         doc = await TestSourceModel.get(doc_id, _source=['f_int'])
         assert doc.f_str == 'a'
         assert doc.f_int == 1
+
+    async def test_partial_save(self, es, esorm):
+        """
+        Test that models loaded with only some fields can't be saved
+        """
+
+        class PartialSaveModel(esorm.ESModel):
+            f_int: int = 0
+            f_str: str = 'a'
+
+        await esorm.setup_mappings()
+
+        doc = PartialSaveModel(f_int=42, f_str='b')
+        doc_id = await doc.save(refresh=True)
+
+        # Models with all fields can be saved
+        assert not (await PartialSaveModel.get(doc_id))._partial
+        assert not (await PartialSaveModel.get(doc_id, _source=True))._partial
+        assert not (await PartialSaveModel.search_one_by_fields(dict(_id=doc_id)))._partial
+
+        partial_docs = [
+            await PartialSaveModel.get(doc_id, _source=['f_str']),
+            await PartialSaveModel.get(doc_id, _source_excludes=['f_int']),
+            await PartialSaveModel.search_one_by_fields(dict(_id=doc_id), _source=['f_str']),
+            await PartialSaveModel.search_one_by_fields(dict(_id=doc_id), _source_includes=['f_str']),
+            (await PartialSaveModel.search_by_fields(dict(_id=doc_id), _source='f_str', res_dict=True))[doc_id],
+            [d async for d in PartialSaveModel.scan(_source=['f_str'])][0],
+        ]
+        for partial_doc in partial_docs:
+            assert partial_doc._partial
+            assert partial_doc.f_str == 'b'
+            assert partial_doc.f_int == 0  # The default
+            partial_doc.f_str = 'c'
+            with pytest.raises(esorm.PartialDocumentError):
+                await partial_doc.save()
+            with pytest.raises(esorm.PartialDocumentError):
+                async with esorm.ESBulk() as bulk:
+                    await bulk.save(partial_doc)
+
+        # Nothing is overwritten
+        doc = await PartialSaveModel.get(doc_id)
+        assert doc.f_int == 42
+        assert doc.f_str == 'b'
+
+        # After reloading the whole document it can be saved
+        partial_doc = partial_docs[0]
+        await partial_doc.reload()
+        assert not partial_doc._partial
+        assert partial_doc.f_int == 42
+        partial_doc.f_str = 'c'
+        await partial_doc.save(refresh=True)
+        doc = await PartialSaveModel.get(doc_id)
+        assert doc.f_int == 42
+        assert doc.f_str == 'c'
+
+    async def test_partial_update(self, es, esorm, model_timestamp):
+        """
+        Test updating only the loaded and changed fields
+        """
+        from elasticsearch import ConflictError
+
+        class PartialUpdateModel(esorm.ESModel):
+            f_int: int = 0
+            f_str: str = 'a'
+            f_nested: Optional[model_timestamp] = None
+            f_list: List[str] = []
+
+        await esorm.setup_mappings()
+
+        doc = PartialUpdateModel(f_int=42, f_str='b', f_nested=model_timestamp(f_str='n', f_int=5), f_list=['x'])
+        doc_id = await doc.save(refresh=True)
+
+        # Update a field loaded alone
+        partial_doc = await PartialUpdateModel.get(doc_id, _source=['f_str'])
+        partial_doc.f_str = 'c'
+        assert await partial_doc.update(refresh=True) == doc_id
+        assert partial_doc._version == 2
+        doc = await PartialUpdateModel.get(doc_id)
+        assert (doc.f_int, doc.f_str, doc.f_nested.f_str, doc.f_nested.f_int, doc.f_list) == (42, 'c', 'n', 5, ['x'])
+
+        # Fields which were not loaded, but set, are updated too
+        partial_doc.f_list = ['y', 'z']
+        await partial_doc.update(refresh=True)
+        doc = await PartialUpdateModel.get(doc_id)
+        assert (doc.f_int, doc.f_str, doc.f_nested.f_int, doc.f_list) == (42, 'c', 5, ['y', 'z'])
+
+        # Only a field of a nested model is loaded, the others are kept
+        partial_doc = await PartialUpdateModel.get(doc_id, _source=['f_nested.f_str'])
+        assert partial_doc.f_nested.f_int == 1  # The default
+        partial_doc.f_nested.f_str = 'm'
+        await partial_doc.update(refresh=True)
+        doc = await PartialUpdateModel.get(doc_id)
+        assert (doc.f_int, doc.f_str, doc.f_nested.f_str, doc.f_nested.f_int) == (42, 'c', 'm', 5)
+
+        # Optimistic concurrency control
+        doc1 = await PartialUpdateModel.get(doc_id, _source=['f_int'])
+        doc2 = await PartialUpdateModel.get(doc_id, _source=['f_int'])
+        doc1.f_int = 1
+        await doc1.update(refresh=True)
+        doc2.f_int = 2
+        with pytest.raises(ConflictError):
+            await doc2.update()
+        assert (await PartialUpdateModel.get(doc_id)).f_int == 1
+
+        # Bulk update
+        doc1 = await PartialUpdateModel.get(doc_id, _source=['f_int'])
+        doc2 = await PartialUpdateModel.get(doc_id, _source=['f_str'])
+        doc1.f_int = 3
+        async with esorm.ESBulk(refresh=True) as bulk:
+            await bulk.update(doc1)
+        assert doc1._seq_no is not None and doc1._seq_no > doc2._seq_no
+        doc2.f_str = 'd'
+        with pytest.raises(esorm.error.BulkError) as exc_info:
+            async with esorm.ESBulk(refresh=True) as bulk:
+                await bulk.update(doc2)
+        assert exc_info.value.failed_operations[0]['type'] == 'version_conflict_engine_exception'
+        doc = await PartialUpdateModel.get(doc_id)
+        assert (doc.f_int, doc.f_str, doc.f_nested.f_str, doc.f_nested.f_int) == (3, 'c', 'm', 5)
+
+        # Non-existing document
+        missing = PartialUpdateModel(f_nested=model_timestamp(f_str='n'))
+        missing._id = 'missing_document'
+        with pytest.raises(esorm.NotFoundError):
+            await missing.update()
+
+    async def test_timestamp_update(self, es, esorm):
+        """
+        Test that update() changes modified_at, but not created_at
+        """
+
+        class TimestampUpdateModel(esorm.ESModelTimestamp):
+            f_str: str = ''
+            f_int: int = 1
+
+        await esorm.setup_mappings()
+
+        doc = TimestampUpdateModel(f_str='a', f_int=1)
+        doc_id = await doc.save(refresh=True)
+        created_at = doc.created_at
+        modified_at = doc.modified_at
+
+        await asyncio.sleep(0.01)
+        partial_doc = await TimestampUpdateModel.get(doc_id, _source=['f_int'])
+        partial_doc.f_int = 2
+        await partial_doc.update(refresh=True)
+        doc = await TimestampUpdateModel.get(doc_id)
+        assert doc.f_int == 2
+        assert doc.f_str == 'a'
+        assert doc.created_at == created_at
+        assert doc.modified_at > modified_at
+        modified_at = doc.modified_at
+
+        await asyncio.sleep(0.01)
+        partial_doc = await TimestampUpdateModel.get(doc_id, _source=['f_int'])
+        partial_doc.f_int = 3
+        async with esorm.ESBulk(refresh=True) as bulk:
+            await bulk.update(partial_doc)
+        doc = await TimestampUpdateModel.get(doc_id)
+        assert doc.f_int == 3
+        assert doc.created_at == created_at
+        assert doc.modified_at > modified_at
+
+    async def test_bulk_delete_conflict(self, es, esorm, model_timestamp):
+        """
+        Test that bulk delete doesn't delete a document changed after it was loaded
+        """
+
+        class BulkDeleteModel(model_timestamp):
+            ...
+
+        await esorm.setup_mappings()
+
+        doc = BulkDeleteModel(f_str='a')
+        doc_id = await doc.save(refresh=True)
+
+        doc1 = await BulkDeleteModel.get(doc_id)
+        doc2 = await BulkDeleteModel.get(doc_id)
+        doc1.f_int = 2
+        await doc1.save(refresh=True)
+
+        with pytest.raises(esorm.error.BulkError) as exc_info:
+            async with esorm.ESBulk(refresh=True) as bulk:
+                await bulk.delete(doc2)
+        assert exc_info.value.failed_operations[0]['type'] == 'version_conflict_engine_exception'
+        assert (await BulkDeleteModel.get(doc_id)).f_int == 2
+
+        async with esorm.ESBulk(refresh=True) as bulk:
+            await bulk.delete(doc1)
+        with pytest.raises(esorm.NotFoundError):
+            await BulkDeleteModel.get(doc_id)
 
     async def test_primitive_list(self, es, esorm):
         """

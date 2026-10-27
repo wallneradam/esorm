@@ -6,6 +6,7 @@ from .error import (
     InvalidResponseError,
     InvalidModelError,
     NotFoundError,
+    PartialDocumentError,
 )
 from .model import (TModel, ESBaseModel, ESModel, ESModelTimestamp, Pagination, Sort, setup_mappings,
                     lazy_property, retry_on_conflict)
@@ -22,6 +23,7 @@ __all__ = [
     "NotFoundError",
     "InvalidModelError",
     "InvalidResponseError",
+    "PartialDocumentError",
     "connect", "get_es_version", "is_opensearch",
     "setup_mappings",
     "Field", "DenseVectorField",

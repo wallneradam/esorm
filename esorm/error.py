@@ -31,6 +31,15 @@ class InvalidModelError(Exception):
     """
 
 
+class PartialDocumentError(Exception):
+    """
+    Raised when a model loaded with only some of its fields (`_source` filtering) would be saved.
+
+    Saving replaces the whole document, so the fields which were not loaded would be overwritten with their
+    defaults. Use `update()` instead, which updates only the loaded and changed fields.
+    """
+
+
 class ConflictError(Exception):
     """
     Raised when a conflict occurs.
