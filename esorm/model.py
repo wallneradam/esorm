@@ -24,7 +24,7 @@ from pydantic.fields import Field, PrivateAttr
 from pydantic.fields import FieldInfo  # It is just not in __all__ of pydantic.fields, but we strongly need it
 # noinspection PyProtectedMember
 from pydantic._internal import _model_construction  # The metaclass and field collection of pydantic models
-from pydantic_core import Url
+from pydantic_core import Url, PydanticUndefined
 from pydantic.networks import IPvAnyAddress
 from pydantic import AnyUrl
 
@@ -35,7 +35,7 @@ from ipaddress import IPv4Address, IPv6Address
 from .utils import snake_case, utcnow, datetime_to_es, time_to_es, time_from_es
 from .aggs import ESAgg, ESNamedAggs, ESAggsResponse
 
-from .error import InvalidResponseError, NotFoundError, ConflictError as ESORMConflictError
+from .error import InvalidResponseError, NotFoundError, PartialDocumentError, ConflictError as ESORMConflictError
 from .esorm import es, get_es_version, is_opensearch
 from .query import ESQuery, ESValue
 from .builder import Query
@@ -150,6 +150,79 @@ def _nested_model_class(annotation: Any) -> Optional[Type[BaseModel]]:
     if inspect.isclass(annotation) and issubclass(annotation, BaseModel):
         return annotation
     return None
+
+
+# The request parameters which filter the returned _source (they can be given with a leading underscore too)
+_SOURCE_FILTER_PARAMS = ('source_includes', 'source_excludes', 'source_exclude_vectors')
+
+
+def _is_source_filtered(_source: Any, kwargs: Dict[str, Any]) -> bool:
+    """
+    Check if the parameters of a get or search request filter the returned _source, so the loaded models are partial
+
+    :param _source: The _source parameter of the request
+    :param kwargs: The other parameters of the request
+    :return: True if only some fields of the documents are returned
+    """
+    body = kwargs.get('body') or {}
+    if any(source is not None and source is not True
+           for source in (_source, kwargs.get('source'), body.get('_source'), body.get('source'))):
+        return True
+    return any(kwargs.get(param) or kwargs.get('_' + param) for param in _SOURCE_FILTER_PARAMS)
+
+
+def _mark_modified_fields(model: BaseModel) -> bool:
+    """
+    Add the fields which were modified in place to the set fields of the model (recursively), so they are not
+    skipped by `exclude_unset`: nested models with set fields (e.g. created by a default factory), and lists, dicts
+    and sets which differ from their default (e.g. appended to)
+
+    :param model: The model, its set fields are modified
+    :return: True if the model has any set fields
+    """
+    fields_set = model.__pydantic_fields_set__
+    for name, field in type(model).model_fields.items():
+        value = getattr(model, name, None)
+        items = value if isinstance(value, (list, tuple)) else (value,)
+        # All nested models must be marked, also the ones in set fields
+        nested_set = [_mark_modified_fields(item) for item in items if isinstance(item, BaseModel)]
+        if name in fields_set:
+            continue
+        if any(nested_set):
+            fields_set.add(name)
+        elif isinstance(value, (list, dict, set)):
+            if field.default_factory in (list, dict, set):
+                default = field.default_factory()
+            elif field.default_factory is None and field.default is not PydanticUndefined:
+                default = field.default
+            else:
+                continue
+            if value != default:
+                fields_set.add(name)
+    return bool(fields_set)
+
+
+def _merge_search_body(params: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Move the fields of the `body` parameter of a search request to keyword arguments
+
+    The elasticsearch client would send the unset (None) parameters as null in the body, which ElasticSearch rejects.
+
+    :param params: The keyword arguments of the search request
+    :raises ValueError: Returned when a field is given in the body and as a parameter with different values
+    :return: The keyword arguments without `body`
+    """
+    body = params.pop('body', None)
+    if body is None:
+        return params
+    params = {k: v for k, v in params.items() if v is not None}
+    for key, value in body.items():
+        key = 'from_' if key == 'from' else key
+        if key in params and params[key] != value:
+            raise ValueError(f"Received multiple values for '{key}', specify it either in the body or as a "
+                             f"parameter, not both!")
+        params[key] = value
+    return params
 
 
 #
@@ -347,6 +420,9 @@ class ESModel(ESBaseModel):
 
     _seq_no: Optional[int] = PrivateAttr(None)
     """ The sequence number of the document """
+
+    _partial: bool = PrivateAttr(False)
+    """ True if only some fields of the document were loaded (`_source` filtering), so it can't be saved """
 
     if TYPE_CHECKING:
         ESConfig: ClassVar[Any]
@@ -552,11 +628,12 @@ class ESModel(ESBaseModel):
                     if isinstance(item, dict):
                         cls._recursive_convert_from_es(item, nested_model)
 
-    def update_from_es(self, data: Dict[str, Any]) -> None:
+    def update_from_es(self, data: Dict[str, Any], *, partial: bool = False) -> None:
         """
         Update the model from ElasticSearch data
 
         :param data: The ElasticSearch data
+        :param partial: If the data has only some fields of the document (`_source` filtering)
         :raises esorm.error.InvalidResponseError: Returned when _id or _source is missing from data
         """
         if not data:
@@ -591,12 +668,16 @@ class ESModel(ESBaseModel):
         _seq_no = data.get("_seq_no", None)
         setattr(self, '_seq_no', _seq_no)
 
+        self._partial = partial
+
     @classmethod
-    def from_es(cls: Type[TModel], data: Union[Dict[str, Any], Hit]) -> TModel:
+    def from_es(cls: Type[TModel], data: Union[Dict[str, Any], Hit], *, partial: bool = False) -> TModel:
         """
         Returns an ESModel from an elasticsearch document that has _id, _source
 
         :param data: Elasticsearch document that has _id, _source
+        :param partial: If the document has only some of its fields (`_source` filtering), then the model can't be
+                        saved, only updated, see :meth:`update`
         :raises esorm.error.InvalidResponseError: Returned when data is empty, or _id or _source is missing from it
         :return: The ESModel instance
         """
@@ -634,6 +715,8 @@ class ESModel(ESBaseModel):
         _seq_no = data.get("_seq_no", None)
         setattr(obj, '_seq_no', _seq_no)
 
+        obj._partial = partial
+
         return obj
 
     async def save(self, *, wait_for: bool = False, refresh: Union[bool, Literal["wait_for"]] = False,
@@ -652,8 +735,10 @@ class ESModel(ESBaseModel):
                        True = immediate refresh, "wait_for" = wait for next scheduled refresh
         :param pipeline: Pipeline to use for indexing
         :param routing: Shard routing value
+        :raises esorm.error.PartialDocumentError: Returned if only some fields of the document were loaded
         :return: The new document's ID, it is always a string, even if the id field is an integer
         """
+        self._check_not_partial()
         kwargs: dict = dict(
             document=self.to_es(),
         )
@@ -688,6 +773,75 @@ class ESModel(ESBaseModel):
         # Return the new document's ID
         return self._id
 
+    def _check_not_partial(self) -> None:
+        """
+        Check that the whole document was loaded, so it can be saved
+
+        :raises esorm.error.PartialDocumentError: Returned if only some fields of the document were loaded
+        """
+        if self._partial:
+            raise PartialDocumentError(
+                f"Only some fields of document {self.__id__} were loaded (`_source` filtering), saving it would "
+                f"overwrite the others with their defaults. Use update() to save the loaded fields, or reload() "
+                f"the whole document first!")
+
+    def to_es_update(self) -> Dict[str, Any]:
+        """
+        Generates the partial document for an update: only the fields which were loaded from ElasticSearch or set
+        (in the constructor or later), also in nested models. The id field is not included.
+
+        Changes made in place are detected too: nested models with set fields (e.g. created by a default factory),
+        and lists, dicts and sets which differ from their default.
+
+        :return: The partial document for ElasticSearch
+        """
+        _mark_modified_fields(self)
+        document = self.to_es(exclude_unset=True)
+        if self.ESConfig.id_field:
+            document.pop(self.ESConfig.id_field, None)
+        return document
+
+    async def update(self, *, refresh: Union[bool, Literal["wait_for"]] = False,
+                     routing: Optional[str] = None) -> str:
+        """
+        Update only the fields of the document which were loaded from ElasticSearch or set (partial update)
+
+        The other fields of the document are kept, so this can be used for models loaded with only some of their
+        fields (`_source` filtering), which can't be saved. Objects (nested models) are merged with the stored ones,
+        but lists are replaced, so don't load only some fields of the objects in a list if you want to update it.
+
+        The same optimistic concurrency control is used as in :meth:`save`.
+
+        :param refresh: Controls when changes become visible to search. False (default) = no refresh,
+                       True = immediate refresh, "wait_for" = wait for next scheduled refresh
+        :param routing: Shard routing value
+        :raises esorm.error.NotFoundError: Returned if document not found
+        :return: The document's ID
+        """
+        kwargs: dict = dict(id=self.__id__, doc=self.to_es_update())
+
+        if refresh is not False:
+            kwargs['refresh'] = refresh
+
+        kwargs['routing'] = routing if routing is not None else self.__routing__
+
+        if self._primary_term is not None:
+            kwargs['if_primary_term'] = self._primary_term
+        if self._seq_no is not None:
+            kwargs['if_seq_no'] = self._seq_no
+
+        try:
+            es_res = await self.call('update', **kwargs)
+        except ElasticNotFoundError:
+            raise NotFoundError(f"Document with id {self.__id__} not found!")
+
+        # Update private fields
+        self._id = es_res.get('_id', None)
+        self._version = es_res.get('_version', None)
+        self._primary_term = es_res.get('_primary_term', None)
+        self._seq_no = es_res.get('_seq_no', None)
+        return self._id
+
     # noinspection PyShadowingBuiltins
     @classmethod
     async def get(cls: Type[TModel], id: Union[str, int, float], *, routing: Optional[str] = None,
@@ -706,7 +860,7 @@ class ESModel(ESBaseModel):
         """
         try:
             es_res = await cls.call('get', routing=routing, id=id, index=index, _source=_source, **kwargs)
-            return await _lazy_process_results(cls.from_es(es_res))
+            return await _lazy_process_results(cls.from_es(es_res, partial=_is_source_filtered(_source, kwargs)))
         except ElasticNotFoundError:
             raise NotFoundError(f"Document with id {id} not found")
 
@@ -789,13 +943,14 @@ class ESModel(ESBaseModel):
         if page_size is not None and page is None:
             page = 1
 
-        return await cls.call('search', query=query,
-                              from_=((page - 1) * page_size) if page_size is not None else 0,
-                              size=page_size, sort=sort, routing=routing,
-                              aggs=aggs,
-                              index=index,
-                              seq_no_primary_term=True, version=True,
-                              **kwargs)
+        return await cls.call('search', **_merge_search_body(dict(
+            query=query,
+            from_=((page - 1) * page_size) if page_size is not None else None,
+            size=page_size, sort=sort, routing=routing,
+            aggs=aggs,
+            index=index,
+            seq_no_primary_term=True, version=True,
+            **kwargs)))
 
     @classmethod
     async def search_raw(cls: Type[TModel],
@@ -862,11 +1017,12 @@ class ESModel(ESBaseModel):
             """
             res = await cls._search(query, page_size=page_size, page=page, sort=sort, routing=routing,
                                     index=index, _source=_source, **kwargs)
+            partial = _is_source_filtered(_source, kwargs)
             try:
                 if res_dict:
-                    res = {hit['_id']: cls.from_es(hit) for hit in res['hits']['hits']}
+                    res = {hit['_id']: cls.from_es(hit, partial=partial) for hit in res['hits']['hits']}
                 else:
-                    res = [cls.from_es(hit) for hit in res['hits']['hits']]
+                    res = [cls.from_es(hit, partial=partial) for hit in res['hits']['hits']]
                 return await _lazy_process_results(res)
             except KeyError:
                 return {} if res_dict else []
@@ -1085,15 +1241,17 @@ class ESModel(ESBaseModel):
             pit = await es.open_point_in_time(index=index or cls.ESConfig.index, keep_alive=keep_alive,
                                               routing=routing, request_timeout=kwargs['request_timeout'])
             pit_id = pit['id']
+            partial = _is_source_filtered(_source, kwargs)
             search_after = None
             try:
                 while True:
                     try:
                         # The index must not be set, it comes from the point in time
-                        res = await es.search(pit={'id': pit_id, 'keep_alive': keep_alive}, query=query,
-                                              size=batch_size, sort=sort, search_after=search_after,
-                                              track_total_hits=False, seq_no_primary_term=True, version=True,
-                                              _source=_source, **kwargs)
+                        res = await es.search(**_merge_search_body(dict(
+                            pit={'id': pit_id, 'keep_alive': keep_alive}, query=query,
+                            size=batch_size, sort=sort, search_after=search_after,
+                            track_total_hits=False, seq_no_primary_term=True, version=True,
+                            _source=_source, **kwargs)))
                     except elasticsearch.BadRequestError as e:
                         # Older OpenSearch versions (2.x) don't support _shard_doc, _id is used instead
                         if search_after is None and is_opensearch() and '_shard_doc' in str(e.body):
@@ -1106,7 +1264,7 @@ class ESModel(ESBaseModel):
                     hits = res['hits']['hits']
                     if not hits:
                         break
-                    yield await _lazy_process_results([cls.from_es(hit) for hit in hits])
+                    yield await _lazy_process_results([cls.from_es(hit, partial=partial) for hit in hits])
                     search_after = hits[-1]['sort']
             finally:
                 try:
@@ -1318,13 +1476,31 @@ class ESModelTimestamp(ESModel):
                           It is here for backward compatibility)
         :param pipeline: Pipeline to use for indexing
         :param routing: Shard routing value
+        :raises esorm.error.PartialDocumentError: Returned if only some fields of the document were loaded
         :return: The new document's ID
         """
+        self._check_not_partial()
         self.modified_at = utcnow()
         # Set created_at if not already set
         if force_new or not self.created_at:
             self.created_at = self.modified_at
         return await super().save(wait_for=wait_for, refresh=refresh, pipeline=pipeline, routing=routing)
+
+    async def update(self, *, refresh: Union[bool, Literal["wait_for"]] = False,
+                     routing: Optional[str] = None) -> str:
+        """
+        Update only the fields of the document which were loaded from ElasticSearch or set (partial update)
+
+        The `modified_at` field is updated too, see :meth:`ESModel.update` for details.
+
+        :param refresh: Controls when changes become visible to search. False (default) = no refresh,
+                       True = immediate refresh, "wait_for" = wait for next scheduled refresh
+        :param routing: Shard routing value
+        :raises esorm.error.NotFoundError: Returned if document not found
+        :return: The document's ID
+        """
+        self.modified_at = utcnow()
+        return await super().update(refresh=refresh, routing=routing)
 
 
 #

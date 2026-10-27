@@ -8,8 +8,8 @@
 If more processes update the same document at the same time, one of them could overwrite the changes of the
 other. ESORM prevents this automatically with optimistic concurrency control.
 
-When you load a document, ESORM stores its `_seq_no` and `_primary_term`. When you save or delete it, ESORM sends
-them with the request, and ElasticSearch rejects the operation if the document was changed since it was loaded.
+When you load a document, ESORM stores its `_seq_no` and `_primary_term`. When you save, update or delete it (also
+in bulk operations), ESORM sends them with the request, and ElasticSearch rejects the operation if the document was changed since it was loaded.
 More information in the [ES documentation](https://www.elastic.co/docs/reference/elasticsearch/rest-apis/optimistic-concurrency-control).
 
 This is how to handle the conflicts:
@@ -292,7 +292,12 @@ async def test_source():
     assert doc.f_int == 1
 ```
 
-Don't save a model loaded this way, because the skipped fields would be overwritten with the defaults.
+A model loaded this way can't be saved, because the skipped fields would be overwritten with the defaults:
+`save()` raises `esorm.PartialDocumentError`. Use `update()`, which updates only the loaded and changed fields, see
+[Partial update](../README.md#partial-update).
+
+If you load the documents with `search_raw()` and create the models with `from_es()`, pass `partial=True` to it for
+documents with only some fields.
 
 <a id="iterating-through-large-result-sets"></a>
 ## Iterating through large result sets

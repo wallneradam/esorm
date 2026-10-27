@@ -66,7 +66,7 @@ class ESBulk:
                         }
                         errors.append(error)
 
-                    elif action == 'index':
+                    elif action in ('index', 'update'):
                         model._seq_no = result['_seq_no']
                         model._primary_term = result['_primary_term']
                         model._version = result['_version']
@@ -75,6 +75,35 @@ class ESBulk:
 
         # The exceptions are not handled here, propagate them
         return False
+
+    # noinspection PyProtectedMember
+    @staticmethod
+    def _action_metadata(model: ESModel) -> dict:
+        """
+        Create the metadata of a bulk action
+
+        If the model is from ES (get or search, so it has _seq_no and _primary_term), it will
+        use optimistic concurrency check, so the action is only done if the _seq_no and
+        _primary_term are the same as the document in the index.
+
+        :param model: The model of the action
+        :return: The action metadata
+        """
+        metadata = {
+            '_index': model.ESConfig.index,
+            '_id': model.__id__
+        }
+        routing = model.__routing__
+        if routing is not None:
+            metadata['routing'] = routing
+
+        # Optimistic concurrency check
+        if model._primary_term is not None:
+            metadata['if_primary_term'] = model._primary_term
+        if model._seq_no is not None:
+            metadata['if_seq_no'] = model._seq_no
+
+        return metadata
 
     # noinspection PyProtectedMember
     async def save(self, model: ESModel) -> None:
@@ -89,24 +118,16 @@ class ESBulk:
         time and if the created_at field is not already set, it will set it to the current time too.
 
         :param model: The model to add for saving
+        :raises esorm.error.PartialDocumentError: Returned if only some fields of the document were loaded,
+                                                  use :meth:`update` for it
         """
+        model._check_not_partial()
+
         document: dict = model.to_es()
         if model.ESConfig.id_field:
             del document[model.ESConfig.id_field]
 
-        index = {
-            '_index': model.ESConfig.index,
-            '_id': model.__id__
-        }
-        routing = model.__routing__
-        if routing is not None:
-            index['routing'] = routing
-
-        # Optimistic concurrency check
-        if model._primary_term is not None:
-            index['if_primary_term'] = model._primary_term
-        if model._seq_no is not None:
-            index['if_seq_no'] = model._seq_no
+        index = self._action_metadata(model)
 
         # Support for ESModelTimestamp
         if isinstance(model, ESModelTimestamp):
@@ -122,19 +143,42 @@ class ESBulk:
         self._actions.append({'index': index})
         self._actions.append(document)
 
+    async def update(self, model: ESModel) -> None:
+        """
+        Add the model to the bulk for a partial update
+
+        Only the fields which were loaded from ElasticSearch or set are updated, the other fields of the document
+        are kept, see :meth:`esorm.model.ESModel.update`. It uses the same optimistic concurrency check as
+        :meth:`save`.
+
+        If the model is an ESModelTimestamp, it will update the modified_at field to the current time.
+
+        :param model: The model to add for updating
+        """
+        document = model.to_es_update()
+
+        # Support for ESModelTimestamp
+        if isinstance(model, ESModelTimestamp):
+            document['modified_at'] = datetime_to_es(utcnow())
+
+        # Save model for later to update private fields after the bulk operation
+        self._models_to_index.append(model)
+
+        # Add action and partial document to the bulk
+        self._actions.append({'update': self._action_metadata(model)})
+        self._actions.append({'doc': document})
+
     async def delete(self, model: ESModel) -> None:
         """
         Add the model to the bulk for deletion
 
+        If the model is from ES (get or search, so it has _seq_no and _primary_term), it will
+        use optimistic concurrency check, so it will only delete the document if the _seq_no and
+        _primary_term are the same as the document in the index.
+
         :param model: The model to add for deletion
         """
-        delete = {
-            '_index': model.ESConfig.index,
-            '_id': model.__id__
-        }
-        routing = model.__routing__
-        if routing is not None:
-            delete['routing'] = routing
+        delete = self._action_metadata(model)
 
         # Save model for later to update private fields after the bulk operation
         self._models_to_index.append(model)

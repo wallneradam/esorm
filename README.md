@@ -108,7 +108,7 @@ pip install pyesorm[opensearch]
 
 - Pydantic models for ElasticSearch documents
 - Automatic index and mapping creation from the models
-- CRUD operations
+- CRUD operations, also partial updates
 - Async only (there is no sync API)
 - Conversion between Python and ElasticSearch types
 - Nested documents
@@ -835,6 +835,7 @@ The models returned by `get`, `search` and the other methods have these private 
 | `_version`      | The version of the document         |
 | `_primary_term` | The primary term of the document    |
 | `_seq_no`       | The sequence number of the document |
+| `_partial`      | True if only some fields of the document were loaded (`_source` filtering), see [Partial update](#partial-update) |
 
 <a id="crud-create"></a>
 ### CRUD: Create
@@ -930,6 +931,39 @@ If the document was changed by someone else after you loaded it, `save()` raises
 overwriting the other change. ESORM checks this with the `_primary_term` and `_seq_no` of the document (optimistic
 concurrency control), see [Optimistic concurrency control](docs/advanced.md#optimistic-concurrency-control).
 
+<a id="partial-update"></a>
+#### Partial update
+
+`save()` replaces the whole document. `update()` sends only the fields which were loaded from ElasticSearch or set (in
+the constructor or later), also in nested models, and ElasticSearch keeps the other fields of the document. Changes
+made in place are sent too: nested models with set fields (e.g. created by a default factory), and lists, dicts and
+sets which differ from their default:
+
+```python
+from esorm import ESModel
+
+
+class User(ESModel):
+    name: str = ''
+    age: int = 0
+
+
+async def rename_user(user_id: str):
+    # Load only the name field
+    user = await User.get(user_id, _source=['name'])
+    user.name = 'Jane Doe'
+    # Only the name is updated, the age is kept
+    await user.update()
+```
+
+A model loaded with only some fields (with the `_source` parameter, `_source_includes`, `_source_excludes`, or `_source` in the request `body`) can't
+be saved, because the other fields would be overwritten with their defaults. `save()` raises
+`esorm.PartialDocumentError` for it, use `update()` instead, or load the whole document with `reload()` first.
+
+`update()` has the same `refresh` parameter and optimistic concurrency control as `save()`. It raises
+`esorm.NotFoundError` if the document doesn't exist. Nested models (objects) are merged with the stored ones, but lists
+are replaced as a whole, so don't load only some fields of the objects in a list if you want to update it.
+
 <a id="crud-delete"></a>
 ### CRUD: Delete
 
@@ -980,6 +1014,13 @@ async def bulk_delete_users(users: List[User]):
             await bulk.delete(user)
 
 
+async def bulk_birthday(users: List[User]):
+    async with ESBulk() as bulk:
+        for user in users:
+            user.age += 1
+            await bulk.update(user)  # Partial update, see update()
+
+
 async def bulk_create_users_immediate():
     async with ESBulk(refresh=True) as bulk:  # Refresh immediately
         for i in range(10):
@@ -992,7 +1033,9 @@ exception in the block, nothing is sent. `ESBulk` has the same `refresh` paramet
 [Refresh control](#crud-create).
 
 If some operations fail, `esorm.error.BulkError` is raised after the request. Its `failed_operations` attribute
-has the details and the model of every failed operation, the other operations are done.
+has the details and the model of every failed operation, the other operations are done. The bulk operations use
+optimistic concurrency control like `save()`, `update()` and `delete()`, so an operation fails if the document was
+changed since it was loaded.
 
 <a id="searching"></a>
 ### Search
