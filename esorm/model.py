@@ -214,6 +214,18 @@ def _set_paths(value: Any, path: Tuple[str, ...] = ()) -> Set[Tuple[str, ...]]:
     return paths
 
 
+def _clear_fields_set(value: Any) -> None:
+    """
+    Clear the set fields of a model and its nested models, so the fields set later can be detected
+
+    :param value: The model (or any other value, which has no fields)
+    """
+    if isinstance(value, BaseModel):
+        value.__pydantic_fields_set__.clear()
+        for name in type(value).model_fields:
+            _clear_fields_set(getattr(value, name, None))
+
+
 def _get_path(data: Any, path: Tuple[str, ...]) -> Any:
     """
     Get a value from a dumped model by its path
@@ -484,8 +496,8 @@ class ESModel(ESBaseModel):
     _partial: bool = PrivateAttr(False)
     """ True if only some fields of the document were loaded (`_source` filtering), so it can't be saved """
 
-    _unset_snapshot: Dict[Tuple[str, ...], Tuple[Any, Set[Tuple[str, ...]]]] = PrivateAttr(default_factory=dict)
-    """ The dumped values and the set fields of the fields which were not loaded, to detect their changes """
+    _unset_snapshot: Dict[Tuple[str, ...], Any] = PrivateAttr(default_factory=dict)
+    """ The dumped values of the fields which were not loaded, to detect their changes """
 
     if TYPE_CHECKING:
         ESConfig: ClassVar[Any]
@@ -854,13 +866,17 @@ class ESModel(ESBaseModel):
     def _take_snapshot(self) -> None:
         """
         Take a snapshot of the fields which were neither loaded nor set, see :meth:`to_es_update`
+
+        The set fields of their nested models (e.g. set by a default factory) are cleared, so all the fields set
+        later can be detected, even if their values are not changed.
         """
         dump = self.model_dump(exclude=self._recursive_exclude(self))
         snapshot = {}
         for path in _unset_paths(self):
             value = _get_path(dump, path)
             if value is not _MISSING:  # Excluded fields are not saved
-                snapshot[path] = (value, _set_paths(self._get_field(path)))
+                snapshot[path] = value
+                _clear_fields_set(self._get_field(path))
         self._unset_snapshot = snapshot
 
     def _get_field(self, path: Tuple[str, ...]) -> Any:
@@ -892,7 +908,7 @@ class ESModel(ESBaseModel):
         document = self.model_dump(exclude_unset=True, exclude=exclude)
         if self._unset_snapshot:
             dump = self.model_dump(exclude=exclude)
-            for path, (old, old_set_paths) in self._unset_snapshot.items():
+            for path, old in self._unset_snapshot.items():
                 # Skip it if it is set since the snapshot, then it is in the document already
                 parent = self._get_field(path[:-1])
                 if not isinstance(parent, BaseModel) or path[-1] in parent.model_fields_set:
@@ -903,7 +919,7 @@ class ESModel(ESBaseModel):
                 diff = _diff(new, old)
                 # The fields of nested models set since the snapshot are sent, even if their values are not changed
                 if diff is _MISSING or isinstance(diff, dict):
-                    for set_path in _set_paths(getattr(parent, path[-1], None)) - old_set_paths:
+                    for set_path in _set_paths(getattr(parent, path[-1], None)):
                         value = _get_path(new, set_path)
                         if value is not _MISSING:
                             diff = {} if diff is _MISSING else diff

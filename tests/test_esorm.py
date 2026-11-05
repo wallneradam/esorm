@@ -1390,6 +1390,21 @@ class TestBaseTests:
         # The snapshot is updated after the update, so the same changes are not sent again
         assert partial_doc.to_es_update() == {'name': 'b'}
 
+        # Setting a field to the value set by the default factory is sent too
+        for use_bulk in (False, True):
+            doc = PartialFactoryModel(name='a', profile=PartialProfile(city='Rome', zip='1111'))
+            doc_id = await doc.save(refresh=True)
+            partial_doc = await PartialFactoryModel.get(doc_id, _source=['name'])
+            assert partial_doc.to_es_update() == {'name': 'a'}
+            partial_doc.profile.city = 'Default'
+            if use_bulk:
+                async with esorm.ESBulk(refresh=True) as bulk:
+                    await bulk.update(partial_doc)
+            else:
+                await partial_doc.update(refresh=True)
+            doc = await PartialFactoryModel.get(doc_id)
+            assert (doc.profile.city, doc.profile.zip) == ('Default', '1111')
+
         # Excluded fields and field serializers are respected, setting a nested field to its default is sent
         from pydantic import field_serializer
 
