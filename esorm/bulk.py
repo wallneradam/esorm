@@ -70,6 +70,7 @@ class ESBulk:
                         model._seq_no = result['_seq_no']
                         model._primary_term = result['_primary_term']
                         model._version = result['_version']
+                        model._take_snapshot()
             if errors:
                 raise BulkError(errors)
 

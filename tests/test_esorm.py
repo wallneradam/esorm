@@ -1,4 +1,5 @@
 import asyncio
+from uuid import uuid4
 from typing import TYPE_CHECKING, List, Optional
 import os
 import sys
@@ -1358,6 +1359,36 @@ class TestBaseTests:
         await partial_doc.update(refresh=True)
         doc = await PartialInPlaceModel.get(doc_id)
         assert (doc.name, doc.profile.city, doc.profile.zip, doc.tags) == ('a', 'Rome', '1111', ['y'])
+
+        # Untouched fields with custom default factories are not sent, the changed ones (only the changed parts) are
+        class PartialFactoryModel(esorm.ESModel):
+            name: str = ''
+            profile: PartialProfile = Field(default_factory=lambda: PartialProfile(city='Default'))
+            tags: List[str] = Field(default_factory=lambda: ['seed'])
+            token: str = Field(default_factory=lambda: uuid4().hex)
+
+        await esorm.setup_mappings()
+
+        doc = PartialFactoryModel(name='a', profile=PartialProfile(city='Paris', zip='1111'), tags=['x'],
+                                  token='stored')
+        doc_id = await doc.save(refresh=True)
+        partial_doc = await PartialFactoryModel.get(doc_id, _source=['name'])
+        partial_doc.name = 'b'
+        await partial_doc.update(refresh=True)
+        doc = await PartialFactoryModel.get(doc_id)
+        assert (doc.name, doc.profile.city, doc.profile.zip, doc.tags, doc.token) == \
+               ('b', 'Paris', '1111', ['x'], 'stored')
+
+        partial_doc.tags.append('new')
+        partial_doc.profile.zip = '2222'
+        async with esorm.ESBulk(refresh=True) as bulk:
+            await bulk.update(partial_doc)
+        doc = await PartialFactoryModel.get(doc_id)
+        assert (doc.name, doc.profile.city, doc.profile.zip, doc.tags, doc.token) == \
+               ('b', 'Paris', '2222', ['seed', 'new'], 'stored')
+
+        # The snapshot is updated after the update, so the same changes are not sent again
+        assert partial_doc.to_es_update() == {'name': 'b'}
 
         # Non-existing document
         missing = PartialUpdateModel(f_nested=model_timestamp(f_str='n'))

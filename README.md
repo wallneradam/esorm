@@ -935,9 +935,9 @@ concurrency control), see [Optimistic concurrency control](docs/advanced.md#opti
 #### Partial update
 
 `save()` replaces the whole document. `update()` sends only the fields which were loaded from ElasticSearch or set (in
-the constructor or later), also in nested models, and ElasticSearch keeps the other fields of the document. Changes
-made in place are sent too: nested models with set fields (e.g. created by a default factory), and lists, dicts and
-sets which differ from their default:
+the constructor or later), also in nested models, and ElasticSearch keeps the other fields of the document. The
+fields which were not loaded are compared to their values at loading, so their changes made in place (e.g. appending to
+a list, or setting a field of a nested model created by a default factory) are sent too, but only the changed parts:
 
 ```python
 from esorm import ESModel

@@ -8,6 +8,7 @@ from enum import Enum, IntEnum
 
 import asyncio
 import ast
+import copy
 import inspect
 import textwrap
 import traceback
@@ -24,7 +25,7 @@ from pydantic.fields import Field, PrivateAttr
 from pydantic.fields import FieldInfo  # It is just not in __all__ of pydantic.fields, but we strongly need it
 # noinspection PyProtectedMember
 from pydantic._internal import _model_construction  # The metaclass and field collection of pydantic models
-from pydantic_core import Url, PydanticUndefined
+from pydantic_core import Url
 from pydantic.networks import IPvAnyAddress
 from pydantic import AnyUrl
 
@@ -171,35 +172,61 @@ def _is_source_filtered(_source: Any, kwargs: Dict[str, Any]) -> bool:
     return any(kwargs.get(param) or kwargs.get('_' + param) for param in _SOURCE_FILTER_PARAMS)
 
 
-def _mark_modified_fields(model: BaseModel) -> bool:
-    """
-    Add the fields which were modified in place to the set fields of the model (recursively), so they are not
-    skipped by `exclude_unset`: nested models with set fields (e.g. created by a default factory), and lists, dicts
-    and sets which differ from their default (e.g. appended to)
+# Marks a missing value, or no difference
+_MISSING = object()
 
-    :param model: The model, its set fields are modified
-    :return: True if the model has any set fields
+
+def _dump_value(value: Any) -> Any:
     """
-    fields_set = model.__pydantic_fields_set__
-    for name, field in type(model).model_fields.items():
+    Deep copy of a field value, nested models are dumped to dicts
+
+    :param value: The field value
+    :return: The copy
+    """
+    if isinstance(value, BaseModel):
+        return {k: _dump_value(v) for k, v in value}
+    if isinstance(value, (list, tuple)):
+        return [_dump_value(item) for item in value]
+    if isinstance(value, dict):
+        return {k: _dump_value(v) for k, v in value.items()}
+    return copy.deepcopy(value)
+
+
+def _snapshot_unset_fields(model: BaseModel, path: Tuple[str, ...] = ()) -> Dict[Tuple[str, ...], Any]:
+    """
+    Snapshot of the fields which were neither loaded nor set, also in nested models, to detect the changes made in
+    place later (e.g. appending to a list, or setting a field of a nested model created by a default factory)
+
+    :param model: The model
+    :param path: The path of the model in the document
+    :return: The copies of the values by their paths
+    """
+    snapshot = {}
+    for name in type(model).model_fields:
         value = getattr(model, name, None)
-        items = value if isinstance(value, (list, tuple)) else (value,)
-        # All nested models must be marked, also the ones in set fields
-        nested_set = [_mark_modified_fields(item) for item in items if isinstance(item, BaseModel)]
-        if name in fields_set:
-            continue
-        if any(nested_set):
-            fields_set.add(name)
-        elif isinstance(value, (list, dict, set)):
-            if field.default_factory in (list, dict, set):
-                default = field.default_factory()
-            elif field.default_factory is None and field.default is not PydanticUndefined:
-                default = field.default
-            else:
-                continue
-            if value != default:
-                fields_set.add(name)
-    return bool(fields_set)
+        if name not in model.model_fields_set:
+            snapshot[path + (name,)] = _dump_value(value)
+        elif isinstance(value, BaseModel):
+            snapshot.update(_snapshot_unset_fields(value, path + (name,)))
+    return snapshot
+
+
+def _diff(new: Any, old: Any) -> Any:
+    """
+    The changed part of a dumped value: the changed keys of dicts (recursively), otherwise the whole new value
+
+    :param new: The current value
+    :param old: The value in the snapshot
+    :return: The changes, or _MISSING if nothing changed
+    """
+    if isinstance(new, dict) and isinstance(old, dict):
+        diff = {}
+        for k, v in new.items():
+            d = _diff(v, old[k]) if k in old else v
+            if d is not _MISSING:
+                diff[k] = d
+        return diff or _MISSING
+    return _MISSING if new == old else new
 
 
 def _merge_search_body(params: Dict[str, Any]) -> Dict[str, Any]:
@@ -423,6 +450,9 @@ class ESModel(ESBaseModel):
 
     _partial: bool = PrivateAttr(False)
     """ True if only some fields of the document were loaded (`_source` filtering), so it can't be saved """
+
+    _unset_snapshot: Dict[Tuple[str, ...], Any] = PrivateAttr(default_factory=dict)
+    """ The values of the fields which were not loaded, to detect their changes in update() """
 
     if TYPE_CHECKING:
         ESConfig: ClassVar[Any]
@@ -669,6 +699,7 @@ class ESModel(ESBaseModel):
         setattr(self, '_seq_no', _seq_no)
 
         self._partial = partial
+        self._take_snapshot()
 
     @classmethod
     def from_es(cls: Type[TModel], data: Union[Dict[str, Any], Hit], *, partial: bool = False) -> TModel:
@@ -716,6 +747,7 @@ class ESModel(ESBaseModel):
         setattr(obj, '_seq_no', _seq_no)
 
         obj._partial = partial
+        obj._take_snapshot()
 
         return obj
 
@@ -770,6 +802,7 @@ class ESModel(ESBaseModel):
         self._version = es_res.get('_version', None)
         self._primary_term = es_res.get('_primary_term', None)
         self._seq_no = es_res.get('_seq_no', None)
+        self._take_snapshot()
         # Return the new document's ID
         return self._id
 
@@ -785,18 +818,40 @@ class ESModel(ESBaseModel):
                 f"overwrite the others with their defaults. Use update() to save the loaded fields, or reload() "
                 f"the whole document first!")
 
+    def _take_snapshot(self) -> None:
+        """
+        Take a snapshot of the fields which were neither loaded nor set, see :meth:`to_es_update`
+        """
+        self._unset_snapshot = _snapshot_unset_fields(self)
+
     def to_es_update(self) -> Dict[str, Any]:
         """
         Generates the partial document for an update: only the fields which were loaded from ElasticSearch or set
         (in the constructor or later), also in nested models. The id field is not included.
 
-        Changes made in place are detected too: nested models with set fields (e.g. created by a default factory),
-        and lists, dicts and sets which differ from their default.
+        The other fields of a loaded model are compared to their values at loading (or the last save or update), so
+        the changes made in place (e.g. appending to a list, or setting a field of a nested model created by a default
+        factory) are included too, but only the changed parts.
 
         :return: The partial document for ElasticSearch
         """
-        _mark_modified_fields(self)
-        document = self.to_es(exclude_unset=True)
+        document = self.model_dump(exclude_unset=True, exclude=self._recursive_exclude(self))
+        for path, old in self._unset_snapshot.items():
+            # Find the current value, skip it if it is set since the snapshot (it is in the document already)
+            parent: Any = self
+            for name in path[:-1]:
+                parent = getattr(parent, name, None)
+            if not isinstance(parent, BaseModel) or path[-1] in parent.model_fields_set:
+                continue
+            diff = _diff(_dump_value(getattr(parent, path[-1], None)), old)
+            if diff is _MISSING:
+                continue
+            target = document
+            for name in path[:-1]:
+                target = target.setdefault(name, {})
+            if isinstance(target, dict):
+                target[path[-1]] = diff
+        self._recursive_convert_to_es(document)
         if self.ESConfig.id_field:
             document.pop(self.ESConfig.id_field, None)
         return document
@@ -840,6 +895,7 @@ class ESModel(ESBaseModel):
         self._version = es_res.get('_version', None)
         self._primary_term = es_res.get('_primary_term', None)
         self._seq_no = es_res.get('_seq_no', None)
+        self._take_snapshot()
         return self._id
 
     # noinspection PyShadowingBuiltins
