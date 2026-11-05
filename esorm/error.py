@@ -3,6 +3,8 @@ This module contains all the exceptions that can be raised by ESORM.
 """
 from typing import List, TypedDict, TYPE_CHECKING
 
+from .mapping import MappingDiff, format_diffs
+
 if TYPE_CHECKING:
     from esorm import ESModel
 
@@ -63,3 +65,24 @@ class BulkError(Exception):
     def __init__(self, failed_operations: List[BulkOperationError]):
         super().__init__(f"Bulk operation failed for some actions: {failed_operations}")
         self.failed_operations = failed_operations
+
+
+class MappingError(Exception):
+    """
+    Raised by `setup_mappings` in strict mode when the mappings could not be created or updated.
+    """
+
+
+class MappingConflictError(MappingError):
+    """
+    Raised by `setup_mappings` in strict mode when the mappings of the models are incompatible with the existing
+    indices, e.g. the type of a field has changed. Such changes need a new index and reindexing.
+    """
+
+    diffs: List[MappingDiff]
+    """ The conflicting differences """
+
+    def __init__(self, diffs: List[MappingDiff]):
+        super().__init__("The mappings of the models are incompatible with the existing indices "
+                         f"(a new index and reindexing is needed):\n{format_diffs(diffs)}")
+        self.diffs = diffs

@@ -6,9 +6,12 @@ from .error import (
     InvalidResponseError,
     InvalidModelError,
     NotFoundError,
+    MappingError,
+    MappingConflictError,
 )
+from .mapping import MappingDiff
 from .model import (TModel, ESBaseModel, ESModel, ESModelTimestamp, Pagination, Sort, setup_mappings,
-                    lazy_property, retry_on_conflict)
+                    check_mappings, lazy_property, retry_on_conflict)
 from .esorm import es, connect, get_es_version, is_opensearch
 from .fields import Field, DenseVectorField
 from .bulk import ESBulk
@@ -22,8 +25,12 @@ __all__ = [
     "NotFoundError",
     "InvalidModelError",
     "InvalidResponseError",
+    "MappingError",
+    "MappingConflictError",
+    "MappingDiff",
     "connect", "get_es_version", "is_opensearch",
     "setup_mappings",
+    "check_mappings",
     "Field", "DenseVectorField",
     "fields",
     "builder",

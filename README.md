@@ -52,6 +52,7 @@ the models, the queries and the results. It works with OpenSearch too.
         - [Client](#client)
     - [Create index templates](#create-index-templates)
     - [Create indices and mappings](#create-indices-and-mappings)
+        - [Check mappings](#check-mappings)
     - [Model instances](#model-instances)
     - [CRUD: Create](#crud-create)
     - [CRUD: Read](#crud-read)
@@ -816,12 +817,67 @@ async def prepare_es():
 The model classes are registered in a global registry when they are defined, so first import every model. Then
 `setup_mappings` creates the index and the mapping of every registered model.
 
-If an index already exists, `setup_mappings` adds the new fields to its mapping, but it can't change or delete the
-existing fields. This is an ElasticSearch limitation, for such changes you need to reindex the data. If the new
-mapping is not compatible with the existing one, a warning is logged, and the other models are processed.
+If an index already exists, `setup_mappings` compares its mapping with the model first. New fields, new subfields
+and the parameters which can be updated in place (e.g. `search_analyzer`, `ignore_above`) are added to the existing
+mapping. Other changes, e.g. changing the type or the analyzer of a field, are not possible on an existing index.
+This is an ElasticSearch limitation, for such changes you need a new index and reindexing the data. Fields can't be
+deleted from an index either, fields which are in the index but not in the model are just logged.
 `ESConfig.settings` is used only when the index is created.
 
+If a model is incompatible with its existing index, `setup_mappings` raises a `MappingConflictError` with the list of
+the conflicting fields, before any index is changed. So the application doesn't start with models which differ from
+the indices. Other errors from the server (e.g. an unknown analyzer) raise a `MappingError`:
+
+```python
+from esorm import setup_mappings, MappingConflictError
+
+
+async def prepare_es():
+    import models
+    try:
+        await setup_mappings(models)
+    except MappingConflictError as e:
+        print(e)  # The readable list of the conflicts
+        for diff in e.diffs:
+            print(diff.index, diff.field, diff.param, diff.actual, diff.expected)
+        raise
+```
+
+With `setup_mappings(strict=False)` only warnings are logged instead, and the compatible changes are still applied.
+
 With `setup_mappings(debug=True)` the mappings are logged.
+
+<a id="check-mappings"></a>
+#### Check mappings
+
+`check_mappings` compares the models with the existing indices without changing anything. It returns the list of
+the differences (`MappingDiff`), which is empty if the indices match the models:
+
+```python
+from esorm import check_mappings
+
+
+async def check_es():
+    import models
+    for diff in await check_mappings():
+        print(diff)  # e.g. `esorm_user` field `name`: `type` is 'keyword' in the index, but 'text' in the model
+```
+
+The `kind` of a difference is one of these:
+
+| Kind        | Meaning                                                                          | `setup_mappings`    |
+|-------------|----------------------------------------------------------------------------------|---------------------|
+| `new_index` | The index does not exist                                                         | creates the index   |
+| `new_field` | A new field or subfield                                                          | adds it             |
+| `update`    | A parameter which can be updated in place (e.g. `search_analyzer`)               | updates it          |
+| `conflict`  | An incompatible change (e.g. the type of a field), it needs a new index          | raises an error     |
+| `extra`     | The field is in the index, but not in the model                                  | logs it             |
+
+Only the parameters set by the models are compared, so the parameters which the server adds or sets by default
+(e.g. the `dims` of a `dense_vector` field detected from the first document) are not differences.
+
+The index of a model can also be an alias (e.g. `user` pointing to `user_v2`), then the real indices behind the
+alias are compared and updated.
 
 <a id="model-instances"></a>
 ### Model instances

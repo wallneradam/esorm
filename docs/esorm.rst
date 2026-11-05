@@ -74,6 +74,14 @@ esorm.logger module
    :undoc-members:
    :show-inheritance:
 
+esorm.mapping module
+^^^^^^^^^^^^^^^^^^^^
+
+.. automodule:: esorm.mapping
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 esorm.model module
 ^^^^^^^^^^^^^^^^^^
 

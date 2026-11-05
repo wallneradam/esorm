@@ -8,11 +8,12 @@ from enum import Enum, IntEnum
 
 import asyncio
 import ast
+import copy
 import inspect
 import textwrap
-import traceback
 from contextlib import aclosing
 from contextvars import ContextVar
+from dataclasses import dataclass
 from datetime import datetime, date, time
 from functools import wraps
 
@@ -35,7 +36,9 @@ from ipaddress import IPv4Address, IPv6Address
 from .utils import snake_case, utcnow, datetime_to_es, time_to_es, time_from_es
 from .aggs import ESAgg, ESNamedAggs, ESAggsResponse
 
-from .error import InvalidResponseError, NotFoundError, ConflictError as ESORMConflictError
+from .error import (InvalidResponseError, NotFoundError, ConflictError as ESORMConflictError, MappingError,
+                    MappingConflictError)
+from .mapping import MappingDiff, diff_mappings, format_diffs
 from .esorm import es, get_es_version, is_opensearch
 from .query import ESQuery, ESValue
 from .builder import Query
@@ -53,6 +56,7 @@ __all__ = [
     'ESModelTimestamp',
     'Pagination', 'Sort',
     'setup_mappings',
+    'check_mappings',
     'create_index_template',
     'set_default_index_prefix',
     'set_max_lazy_property_concurrency',
@@ -1636,202 +1640,199 @@ async def create_index_template(name: str,
     )
 
 
-async def setup_mappings(*_: Any, debug: bool = False) -> None:
-    """
-    Create mappings for indices or try to extend it if there are new fields
-    """
+def _get_field_data(pydantic_type: type) -> dict:
+    """ Get field data from pydantic type """
+    origin = get_origin(pydantic_type)
+    args = get_args(pydantic_type)
 
-    # noinspection PyShadowingNames
-    def get_field_data(pydantic_type: type) -> dict:
-        """ Get field data from pydantic type """
-        origin = get_origin(pydantic_type)
-        args = get_args(pydantic_type)
+    # Handle Union type, which must be a type definition from esorm.fields, because other unions not allowed
+    if origin and (
+            origin is Union
+            or
+            getattr(origin, '__name__', None) == 'UnionType'  # UnionType is in newer Pythons, this works backwards
+    ):
+        # Optional may equal to Union[..., None], we don't use Optional in ES, but its child
+        if type(None) in args:
+            return _get_field_data(args[0])
 
-        # Handle Union type, which must be a type definition from esorm.fields, because other unions not allowed
-        if origin and (
-                origin is Union
-                or
-                getattr(origin, '__name__', None) == 'UnionType'  # UnionType is in newer Pythons, this works backwards
-        ):
-            # Optional may equal to Union[..., None], we don't use Optional in ES, but its child
-            if type(None) in args:
-                return get_field_data(args[0])
-
-            for arg in args:
-                if hasattr(arg, '__es_type__'):
-                    return {'type': arg.__es_type__}
-
-            raise ValueError('Union is not supported as ES field type!')
-
-        # We don't use Optional in ES, but its child
-        if origin is Optional:
-            return get_field_data(args[0])
-
-        # List types
-        if origin is list:
-            arg = args[0]
-
-            # Python type
-            try:
-                return {'type': _pydantic_type_map[arg]}
-            except KeyError:
-                pass
-
-            # ESORM type
+        for arg in args:
             if hasattr(arg, '__es_type__'):
                 return {'type': arg.__es_type__}
-            else:
-                sub_origin = get_origin(arg)
-                if sub_origin is Union:
-                    try:
-                        sub_arg = get_args(arg)[0]
-                        return {'type': sub_arg.__es_type__}
-                    except IndexError:
-                        pass
-                    raise ValueError(f'Unsupported ES field type: {arg}')
 
-            # Nested class
-            properties = {}
-            create_mapping(arg, properties)
-            return {
-                'type': 'nested',
-                'properties': properties
-            }
+        raise ValueError('Union is not supported as ES field type!')
 
-        # String literals
-        if origin is Literal:
-            return {'type': 'keyword'}
+    # We don't use Optional in ES, but its child
+    if origin is Optional:
+        return _get_field_data(args[0])
 
-        # Pydantic annotated types (e.g. HttpUrl in <v2.10.0)
-        if origin is Annotated:
-            return get_field_data(args[0])
-
-        # Origin could be a base type as well in older Python versions
-        if origin in [int, float, str, bool]:
-            return {'type': _pydantic_type_map[origin]}
-
-        # Not supported origin type
-        if origin:
-            raise ValueError(f'Unsupported ES field type: {pydantic_type}, origin: {origin}')
-
-        # Nested class
-        if issubclass(pydantic_type, BaseModel):
-            # If it is a model but has an es_type, use it (e.g. geo_point)
-            if hasattr(pydantic_type, '__es_type__'):
-                return {'type': pydantic_type.__es_type__}
-
-            properties = {}
-            create_mapping(pydantic_type, properties)
-            return {'properties': properties}
-
-        # IntEnum type as integer
-        if issubclass(pydantic_type, IntEnum):
-            return {'type': 'integer'}
-
-        # Other Enum types as keyword
-        if issubclass(pydantic_type, Enum):
-            return {'type': 'keyword'}
-
-        # Is it an ESORM type?
-        if hasattr(pydantic_type, '__es_type__'):
-            return {'type': pydantic_type.__es_type__}
-
-        if issubclass(pydantic_type, AnyUrl):
-            return {'type': 'keyword'}
+    # List types
+    if origin is list:
+        arg = args[0]
 
         # Python type
         try:
-            # noinspection PyTypeChecker
-            return {'type': _pydantic_type_map[pydantic_type]}
+            return {'type': _pydantic_type_map[arg]}
         except KeyError:
             pass
 
-        raise ValueError(f'Unknown ES field type: {pydantic_type} (origin: {origin}, args: {args})')
+        # ESORM type
+        if hasattr(arg, '__es_type__'):
+            return {'type': arg.__es_type__}
+        else:
+            sub_origin = get_origin(arg)
+            if sub_origin is Union:
+                try:
+                    sub_arg = get_args(arg)[0]
+                    return {'type': sub_arg.__es_type__}
+                except IndexError:
+                    pass
+                raise ValueError(f'Unsupported ES field type: {arg}')
 
-    # noinspection PyShadowingNames
-    def create_mapping(model: Type[BaseModel], properties: dict):
-        """ Creates mapping for the model """
-        field_info: FieldInfo
-        for name, field_info in model.model_fields.items():
-            # Skip id field, because it won't be stored
-            if hasattr(model, 'ESConfig') and model.ESConfig.id_field == name:
-                continue
-            # Alias support
-            if field_info.alias:
-                name = field_info.alias
-            # Get extra field info
-            extra = field_info.json_schema_extra or {}
-            # Process field
-            res = get_field_data(field_info.annotation)
-            _type = res.get('type', None)
-            if 'index' in extra and _type != 'binary':
-                if 'properties' in res:
-                    for v in res['properties'].values():
-                        v['index'] = extra['index']
-                else:
-                    res['index'] = extra['index']
-            # Handle dense_vector specific parameters
-            if _type == 'dense_vector':
-                if 'dims' in extra:
-                    res['dims'] = extra['dims']
-                if 'similarity' in extra:
-                    res['similarity'] = extra['similarity']
-            # Add subfields if specified
-            if 'fields' in extra:
-                res['fields'] = extra['fields']
-            if "analyzer" in extra:
-                res["analyzer"] = extra["analyzer"]
-            if "search_analyzer" in extra:
-                res["search_analyzer"] = extra["search_analyzer"]
-            properties[name] = res
+        # Nested class
+        properties = {}
+        _create_mapping(arg, properties)
+        return {
+            'type': 'nested',
+            'properties': properties
+        }
 
-    # noinspection PyShadowingNames
-    def has_dense_vector(properties: dict) -> bool:
-        """ Check if there is a dense_vector field in the mapping (recursively) """
-        return any(v.get('type') == 'dense_vector' or has_dense_vector(v.get('properties', {}))
-                   for v in properties.values())
+    # String literals
+    if origin is Literal:
+        return {'type': 'keyword'}
 
-    # noinspection PyShadowingNames
-    def flat_setting_keys(settings: dict, prefix: str = ''):
-        """ Get the keys of the settings in flat ('a.b.c') form """
-        for k, v in settings.items():
-            if isinstance(v, dict):
-                yield from flat_setting_keys(v, f'{prefix}{k}.')
+    # Pydantic annotated types (e.g. HttpUrl in <v2.10.0)
+    if origin is Annotated:
+        return _get_field_data(args[0])
+
+    # Origin could be a base type as well in older Python versions
+    if origin in [int, float, str, bool]:
+        return {'type': _pydantic_type_map[origin]}
+
+    # Not supported origin type
+    if origin:
+        raise ValueError(f'Unsupported ES field type: {pydantic_type}, origin: {origin}')
+
+    # Nested class
+    if issubclass(pydantic_type, BaseModel):
+        # If it is a model but has an es_type, use it (e.g. geo_point)
+        if hasattr(pydantic_type, '__es_type__'):
+            return {'type': pydantic_type.__es_type__}
+
+        properties = {}
+        _create_mapping(pydantic_type, properties)
+        return {'properties': properties}
+
+    # IntEnum type as integer
+    if issubclass(pydantic_type, IntEnum):
+        return {'type': 'integer'}
+
+    # Other Enum types as keyword
+    if issubclass(pydantic_type, Enum):
+        return {'type': 'keyword'}
+
+    # Is it an ESORM type?
+    if hasattr(pydantic_type, '__es_type__'):
+        return {'type': pydantic_type.__es_type__}
+
+    if issubclass(pydantic_type, AnyUrl):
+        return {'type': 'keyword'}
+
+    # Python type
+    try:
+        # noinspection PyTypeChecker
+        return {'type': _pydantic_type_map[pydantic_type]}
+    except KeyError:
+        pass
+
+    raise ValueError(f'Unknown ES field type: {pydantic_type} (origin: {origin}, args: {args})')
+
+def _create_mapping(model: Type[BaseModel], properties: dict):
+    """ Creates mapping for the model """
+    field_info: FieldInfo
+    for name, field_info in model.model_fields.items():
+        # Skip id field, because it won't be stored
+        if hasattr(model, 'ESConfig') and model.ESConfig.id_field == name:
+            continue
+        # Alias support
+        if field_info.alias:
+            name = field_info.alias
+        # Get extra field info
+        extra = field_info.json_schema_extra or {}
+        # Process field
+        res = _get_field_data(field_info.annotation)
+        _type = res.get('type', None)
+        if 'index' in extra and _type != 'binary':
+            if 'properties' in res:
+                for v in res['properties'].values():
+                    v['index'] = extra['index']
             else:
-                yield prefix + k
+                res['index'] = extra['index']
+        # Handle dense_vector specific parameters
+        if _type == 'dense_vector':
+            if 'dims' in extra:
+                res['dims'] = extra['dims']
+            if 'similarity' in extra:
+                res['similarity'] = extra['similarity']
+        # Add subfields if specified
+        if 'fields' in extra:
+            res['fields'] = extra['fields']
+        if "analyzer" in extra:
+            res["analyzer"] = extra["analyzer"]
+        if "search_analyzer" in extra:
+            res["search_analyzer"] = extra["search_analyzer"]
+        properties[name] = res
 
-    # noinspection PyShadowingNames
-    def has_setting(settings: dict, key: str) -> bool:
-        """ Check if a setting is specified either in flat ('a.b.c') or in nested form """
-        key = key.removeprefix('index.')
-        return any(k == key or k.endswith('.' + key) for k in flat_setting_keys(settings))
 
-    # ES 9.2+ excludes vectors from _source by default and OpenSearch 3.x+ derives vectors in _source from the index
-    # (normalized for cosine similarity), both would break loading models with vectors
-    es_major, es_minor = map(int, (await get_es_version()).split('.')[:2])
-    source_vectors_setting: Optional[str] = None
-    if is_opensearch():
-        if es_major >= 3:
-            source_vectors_setting = 'index.knn.derived_source.enabled'
-    elif (es_major, es_minor) >= (9, 2):
-        source_vectors_setting = 'index.mapping.exclude_source_vectors'
+def _has_dense_vector(properties: dict) -> bool:
+    """ Check if there is a dense_vector field in the mapping (recursively) """
+    return any(v.get('type') == 'dense_vector' or _has_dense_vector(v.get('properties', {}))
+               for v in properties.values())
 
-    # Process all models and create mappings
+
+def _flat_setting_keys(settings: dict, prefix: str = ''):
+    """ Get the keys of the settings in flat ('a.b.c') form """
+    for k, v in settings.items():
+        if isinstance(v, dict):
+            yield from _flat_setting_keys(v, f'{prefix}{k}.')
+        else:
+            yield prefix + k
+
+
+def _has_setting(settings: dict, key: str) -> bool:
+    """ Check if a setting is specified either in flat ('a.b.c') or in nested form """
+    key = key.removeprefix('index.')
+    return any(k == key or k.endswith('.' + key) for k in _flat_setting_keys(settings))
+
+
+@dataclass
+class _IndexMappingPlan:
+    """ What needs to be done with the mapping of a model """
+    model: Type['ESModel']
+    index: str
+    properties: Dict[str, Any]
+    """ The properties generated from the model """
+    exists: bool
+    """ If the index exists """
+    diffs: List[MappingDiff]
+    patches: Dict[str, Dict[str, Any]]
+    """ The properties to send to the put mapping API by the real index names (it may differ if index is an alias) """
+
+
+async def _plan_mappings(debug: bool = False) -> List[_IndexMappingPlan]:
+    """
+    Compare the mappings generated from the models with the mappings of the existing indices
+
+    :param debug: Log the generated mappings
+    :return: The plan for every model, which is not skipped
+    """
+    plans = []
     for index, model in _ESModelMeta.__models__.items():
-        
         if model.ESConfig.skip_init:
             logger.debug(f"`{index}` mappings creation: skipped.")
             continue
-        
-        # Get mappings from ES if already exists
-        index_exists = False
-        try:
-            properties = (await es.indices.get_mapping(index=index, request_timeout=90))[index]['mappings'][
-                'properties']
-            index_exists = True
-        except (elasticsearch.NotFoundError, KeyError):
-            properties = {}
-        create_mapping(model, properties)
+
+        properties: Dict[str, Any] = {}
+        _create_mapping(model, properties)
 
         if debug:
             from pprint import pformat
@@ -1839,16 +1840,116 @@ async def setup_mappings(*_: Any, debug: bool = False) -> None:
                 f"`{index}` mappings:\n {pformat(properties, indent=2, width=100, compact=False, sort_dicts=False)}")
 
         try:
-            if not index_exists:
-                settings = model.ESConfig.settings
-                if (source_vectors_setting and has_dense_vector(properties)
-                        and not has_setting(settings or {}, source_vectors_setting)):
+            # The keys are the real index names, it could be different if the index name is an alias
+            existing = await es.indices.get_mapping(index=index, request_timeout=90)
+        except elasticsearch.NotFoundError:
+            plans.append(_IndexMappingPlan(model, index, properties, False,
+                                           [MappingDiff(index, 'new_index', expected=properties)], {}))
+            continue
+
+        # The mapping returned by OpenSearch contains knn_vector fields instead of dense_vector ones
+        expected = properties
+        if is_opensearch() and _has_dense_vector(properties):
+            from .opensearch import _convert_properties
+            expected = copy.deepcopy(properties)
+            _convert_properties(expected)
+
+        diffs: List[MappingDiff] = []
+        patches = {}
+        for real_index, mapping in existing.items():
+            index_diffs, patch = diff_mappings(real_index, expected,
+                                               (mapping.get('mappings') or {}).get('properties') or {})
+            diffs.extend(index_diffs)
+            if patch:
+                patches[real_index] = patch
+        plans.append(_IndexMappingPlan(model, index, properties, True, diffs, patches))
+    return plans
+
+
+async def check_mappings(*, debug: bool = False) -> List[MappingDiff]:
+    """
+    Compare the mappings of the models with the existing indices without changing anything
+
+    Only the parameters set by the models are compared, the differences can be:
+
+    - `new_index`: the index does not exist, `setup_mappings` will create it
+    - `new_field`: a new field (or subfield), `setup_mappings` will add it
+    - `update`: a parameter which can be updated in place (e.g. `search_analyzer`), `setup_mappings` will update it
+    - `conflict`: an incompatible change (e.g. the type of a field changed), a new index and reindexing is needed
+    - `extra`: a field which is in the index, but not in the model, it is harmless
+
+    Example::
+
+        diffs = await esorm.check_mappings()
+        for diff in diffs:
+            print(diff.kind, diff)
+
+    :param debug: Log the generated mappings
+    :return: The list of differences, empty if the indices match the models
+    """
+    return [diff for plan in await _plan_mappings(debug) for diff in plan.diffs]
+
+
+async def setup_mappings(*_: Any, debug: bool = False, strict: bool = True) -> None:
+    """
+    Create the indices of the models or extend their mappings with the new fields
+
+    The mappings of the existing indices are compared with the models first (see `check_mappings`).
+    New fields, new subfields and parameters which can be updated in place are added to the existing indices.
+    Incompatible changes (e.g. changing the type of a field) need a new index and reindexing.
+
+    :param debug: Log the generated mappings
+    :param strict: If True (default), a `MappingConflictError` is raised if there are incompatible changes, before
+                   any index is changed, and a `MappingError` is raised if an index or its mapping could not be
+                   created or updated. If False, only warnings are logged and the compatible changes are applied.
+    :raises MappingConflictError: In strict mode, if the models are incompatible with the existing indices
+    :raises MappingError: In strict mode, if an index or its mapping could not be created or updated
+    """
+    plans = await _plan_mappings(debug)
+
+    conflicts = [diff for plan in plans for diff in plan.diffs if diff.is_conflict]
+    if conflicts:
+        if strict:
+            raise MappingConflictError(conflicts)
+        logger.warning("The mappings of the models are incompatible with the existing indices, these changes are "
+                       f"not applied (a new index and reindexing is needed):\n{format_diffs(conflicts)}")
+
+    extras = [diff for plan in plans for diff in plan.diffs if diff.kind == 'extra']
+    if extras:
+        logger.info(f"Fields in the indices which are not in the models:\n{format_diffs(extras)}")
+
+    # ES 9.2+ excludes vectors from _source by default and OpenSearch 3.x+ derives vectors in _source from the index
+    # (normalized for cosine similarity), both would break loading models with vectors
+    source_vectors_setting: Optional[str] = None
+    if any(not plan.exists and _has_dense_vector(plan.properties) for plan in plans):
+        es_major, es_minor = map(int, (await get_es_version()).split('.')[:2])
+        if is_opensearch():
+            if es_major >= 3:
+                source_vectors_setting = 'index.knn.derived_source.enabled'
+        elif (es_major, es_minor) >= (9, 2):
+            source_vectors_setting = 'index.mapping.exclude_source_vectors'
+
+    for plan in plans:
+        try:
+            if not plan.exists:
+                settings = plan.model.ESConfig.settings
+                if (source_vectors_setting and _has_dense_vector(plan.properties)
+                        and not _has_setting(settings or {}, source_vectors_setting)):
                     settings = {**(settings or {}), source_vectors_setting: False}
-                await es.indices.create(index=index,
-                                        mappings={'properties': properties},
+                await es.indices.create(index=plan.index,
+                                        mappings={'properties': plan.properties},
                                         settings=settings,
                                         request_timeout=90)
-            else:
-                await es.indices.put_mapping(index=index, properties=properties, request_timeout=90)
-        except elasticsearch.BadRequestError:
-            logger.warning(f"Index mappings error:\n{traceback.format_exc(limit=5)}")
+                continue
+
+            for real_index, patch in plan.patches.items():
+                changes = [diff for diff in plan.diffs
+                           if diff.index == real_index and diff.kind in ('new_field', 'update')]
+                logger.info(f"Updating the mappings of `{real_index}`:\n{format_diffs(changes)}")
+                await es.indices.put_mapping(index=real_index, properties=patch, request_timeout=90)
+        except elasticsearch.BadRequestError as e:
+            message = (f"Could not {'update the mappings of' if plan.exists else 'create'} the index "
+                       f"`{plan.index}`: {e}")
+            if strict:
+                raise MappingError(message) from e
+            logger.warning(message)
