@@ -41,13 +41,16 @@ async def usage() -> None:
     doc: Dict[str, Any] = item.to_es()
     res = await Item.call('get', id='1')
     print(doc, res)
-    loaded: Item = Item.from_es({'_id': '1', '_source': {'name': 'name'}})
+    loaded: Item = Item.from_es({'_id': '1', '_source': {'name': 'name'}}, partial=True)
     print(loaded.name)
+    updated_id: str = await loaded.update(refresh='wait_for')
+    print(updated_id)
     raw = await Item.search_raw({'match': {'name': 'name'}}, page_size=10, _source=False)
     print([hit['_id'] for hit in raw['hits']['hits']])
 
     async with ESBulk(wait_for=True) as bulk:
         await bulk.save(item)
+        await bulk.update(loaded)
         await bulk.delete(item)
 
     dep_sort = make_dep_sort(name_asc=[{'name': {'order': 'asc'}}])
