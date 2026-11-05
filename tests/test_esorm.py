@@ -1455,6 +1455,66 @@ class TestBaseTests:
         with pytest.raises(esorm.NotFoundError):
             await missing.update()
 
+    @pytest.mark.parametrize('operation', ['save', 'update', 'bulk_save', 'bulk_update'])
+    @pytest.mark.parametrize('reuse_address', [False, True])
+    async def test_snapshot_preserves_replacement(self, es, esorm, monkeypatch, operation, reuse_address):
+        """A completed write must preserve the fields of a replacement nested model for the next update."""
+        from pydantic import Field
+
+        class SnapshotAddress(esorm.ESBaseModel):
+            city: str = 'Default'
+
+        class SnapshotProfile(esorm.ESBaseModel):
+            address: SnapshotAddress = Field(default_factory=SnapshotAddress)
+
+        class SnapshotReplacementModel(esorm.ESModel):
+            name: str = ''
+            profile: SnapshotProfile = Field(default_factory=SnapshotProfile)
+
+        await esorm.setup_mappings()
+        doc = SnapshotReplacementModel(name='a')
+        doc_id = await doc.save(refresh=True)
+        if operation.endswith('update'):
+            doc = await SnapshotReplacementModel.get(doc_id, _source=['name'])
+        doc.profile.address.city = 'Queued'
+
+        def replace_profile():
+            if reuse_address:
+                address = doc.profile.address
+                address.city = 'Later'
+            else:
+                address = SnapshotAddress(city='Later')
+            doc.profile = SnapshotProfile(address=address)
+
+        if operation.startswith('bulk_'):
+            async with esorm.ESBulk(refresh=True) as bulk:
+                await getattr(bulk, operation[5:])(doc)
+                replace_profile()
+        else:
+            entered, release = asyncio.Event(), asyncio.Event()
+            original_call = SnapshotReplacementModel.call
+
+            async def delayed_call(cls, method_name, **kwargs):
+                entered.set()
+                await release.wait()
+                return await original_call(method_name, **kwargs)
+
+            with monkeypatch.context() as patch:
+                patch.setattr(SnapshotReplacementModel, 'call', classmethod(delayed_call))
+                pending = asyncio.create_task(getattr(doc, operation)(refresh=True))
+                try:
+                    await asyncio.wait_for(entered.wait(), timeout=5)
+                    replace_profile()
+                finally:
+                    release.set()
+                    await pending
+
+        assert (await SnapshotReplacementModel.get(doc_id)).profile.address.city == 'Queued'
+        assert doc.profile.address.model_fields_set == {'city'}
+        assert doc.to_es_update()['profile'] == {'address': {'city': 'Later'}}
+        await doc.update(refresh=True)
+        assert (await SnapshotReplacementModel.get(doc_id)).profile.address.city == 'Later'
+
     async def test_timestamp_update(self, es, esorm):
         """
         Test that update() changes modified_at, but not created_at

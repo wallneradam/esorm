@@ -175,8 +175,8 @@ def _is_source_filtered(_source: Any, kwargs: Dict[str, Any]) -> bool:
 # Marks a missing value, or no difference
 _MISSING: Any = object()
 
-# The dumped values of the fields which were not loaded by their paths, and the paths of the set fields in them
-_Snapshot = Tuple[Dict[Tuple[str, ...], Any], Set[Tuple[str, ...]]]
+# The dumped unset values, and the original model owners along each explicitly set field's path
+_Snapshot = Tuple[Dict[Tuple[str, ...], Any], Dict[Tuple[str, ...], Tuple[BaseModel, ...]]]
 
 
 def _unset_paths(model: BaseModel, path: Tuple[str, ...] = ()) -> List[Tuple[str, ...]]:
@@ -862,16 +862,19 @@ class ESModel(ESBaseModel):
         It must be prepared when the document is sent, and applied by :meth:`_apply_snapshot` when it is stored, so
         the changes made in the meantime are not lost.
 
-        :return: The dumped values of the fields, and the paths of the set fields of their nested models
+        :return: The dumped values, and the original model owners along each set field's path
         """
         dump = self.model_dump(exclude=self._recursive_exclude(self))
         snapshot = {}
-        set_paths: Set[Tuple[str, ...]] = set()
+        set_paths: Dict[Tuple[str, ...], Tuple[BaseModel, ...]] = {}
         for path in _unset_paths(self):
             value = _get_path(dump, path)
             if value is not _MISSING:  # Excluded fields are not saved
                 snapshot[path] = value
-                set_paths |= {path + set_path for set_path in _set_paths(self._get_field(path))}
+                for set_path in _set_paths(self._get_field(path)):
+                    field_path = path + set_path
+                    set_paths[field_path] = tuple(self._get_field(field_path[:depth])
+                                                  for depth in range(1, len(field_path)))
         return snapshot, set_paths
 
     def _apply_snapshot(self, snapshot: '_Snapshot') -> None:
@@ -879,15 +882,15 @@ class ESModel(ESBaseModel):
         Apply a prepared snapshot
 
         The set fields of the nested models, which were not loaded (e.g. set by a default factory), are cleared, so
-        all the fields set later can be detected, even if their values are not changed.
+        all the fields set later can be detected, even if their values are not changed. Their model owners must
+        still be the same objects as when the snapshot was prepared.
 
         :param snapshot: The snapshot from :meth:`_prepare_snapshot`
         """
         self._unset_snapshot, set_paths = snapshot
-        for path in set_paths:
-            parent = self._get_field(path[:-1])
-            if isinstance(parent, BaseModel):
-                parent.__pydantic_fields_set__.discard(path[-1])
+        for path, owners in set_paths.items():
+            if all(self._get_field(path[:depth]) is owner for depth, owner in enumerate(owners, 1)):
+                owners[-1].__pydantic_fields_set__.discard(path[-1])
 
     def _take_snapshot(self) -> None:
         """
