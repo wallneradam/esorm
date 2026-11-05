@@ -1390,6 +1390,37 @@ class TestBaseTests:
         # The snapshot is updated after the update, so the same changes are not sent again
         assert partial_doc.to_es_update() == {'name': 'b'}
 
+        # Excluded fields and field serializers are respected, setting a nested field to its default is sent
+        from pydantic import field_serializer
+
+        class PartialScoreProfile(esorm.ESBaseModel):
+            city: str = 'Paris'
+            score: int = 0
+
+        class PartialSerializerModel(esorm.ESModel):
+            name: str = ''
+            profile: PartialScoreProfile = Field(default_factory=PartialScoreProfile)
+            secret: List[str] = Field(default_factory=list, exclude=True)
+            upper: List[str] = []
+
+            @field_serializer('upper')
+            def serialize_upper(self, value: List[str]) -> List[str]:
+                return [item.upper() for item in value]
+
+        await esorm.setup_mappings()
+
+        doc = PartialSerializerModel(name='a', profile=PartialScoreProfile(city='Rome', score=9), upper=['x'])
+        doc_id = await doc.save(refresh=True)
+        partial_doc = await PartialSerializerModel.get(doc_id, _source=['name'])
+        partial_doc.secret.append('s')
+        partial_doc.upper.append('y')
+        partial_doc.profile.score = 0
+        assert partial_doc.to_es_update() == {'name': 'a', 'profile': {'score': 0}, 'upper': ['Y']}
+        await partial_doc.update(refresh=True)
+        res = await PartialSerializerModel.search_raw({'ids': {'values': [doc_id]}})
+        assert res['hits']['hits'][0]['_source'] == {'name': 'a', 'profile': {'city': 'Rome', 'score': 0},
+                                                     'upper': ['Y']}
+
         # Non-existing document
         missing = PartialUpdateModel(f_nested=model_timestamp(f_str='n'))
         missing._id = 'missing_document'

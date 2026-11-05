@@ -2,7 +2,7 @@
 This module contains the ESModel classes and related functions
 """
 from typing import (TypeVar, Any, Dict, Optional, Tuple, Type, Union, get_args, get_origin, List, Callable,
-                    Awaitable, Coroutine, AsyncGenerator, Literal, Mapping, ClassVar, TYPE_CHECKING, overload)
+                    Awaitable, Coroutine, AsyncGenerator, Literal, Mapping, ClassVar, TYPE_CHECKING, overload, Set)
 from typing_extensions import TypedDict, Annotated, ParamSpec
 from enum import Enum, IntEnum
 
@@ -173,42 +173,75 @@ def _is_source_filtered(_source: Any, kwargs: Dict[str, Any]) -> bool:
 
 
 # Marks a missing value, or no difference
-_MISSING = object()
+_MISSING: Any = object()
 
 
-def _dump_value(value: Any) -> Any:
+def _unset_paths(model: BaseModel, path: Tuple[str, ...] = ()) -> List[Tuple[str, ...]]:
     """
-    Deep copy of a field value, nested models are dumped to dicts
-
-    :param value: The field value
-    :return: The copy
-    """
-    if isinstance(value, BaseModel):
-        return {k: _dump_value(v) for k, v in value}
-    if isinstance(value, (list, tuple)):
-        return [_dump_value(item) for item in value]
-    if isinstance(value, dict):
-        return {k: _dump_value(v) for k, v in value.items()}
-    return copy.deepcopy(value)
-
-
-def _snapshot_unset_fields(model: BaseModel, path: Tuple[str, ...] = ()) -> Dict[Tuple[str, ...], Any]:
-    """
-    Snapshot of the fields which were neither loaded nor set, also in nested models, to detect the changes made in
-    place later (e.g. appending to a list, or setting a field of a nested model created by a default factory)
+    The paths of the fields which were neither loaded nor set, also in the set nested models
 
     :param model: The model
     :param path: The path of the model in the document
-    :return: The copies of the values by their paths
+    :return: The paths
     """
-    snapshot = {}
+    paths = []
     for name in type(model).model_fields:
-        value = getattr(model, name, None)
         if name not in model.model_fields_set:
-            snapshot[path + (name,)] = _dump_value(value)
-        elif isinstance(value, BaseModel):
-            snapshot.update(_snapshot_unset_fields(value, path + (name,)))
-    return snapshot
+            paths.append(path + (name,))
+        else:
+            value = getattr(model, name, None)
+            if isinstance(value, BaseModel):
+                paths.extend(_unset_paths(value, path + (name,)))
+    return paths
+
+
+def _set_paths(value: Any, path: Tuple[str, ...] = ()) -> Set[Tuple[str, ...]]:
+    """
+    The paths of the explicitly set fields of a model (also in nested models, set or not), which are not models
+
+    :param value: The model (or any other value, which has no fields)
+    :param path: The path of the value
+    :return: The paths
+    """
+    paths = set()
+    if isinstance(value, BaseModel):
+        for name in type(value).model_fields:
+            field_value = getattr(value, name, None)
+            if isinstance(field_value, BaseModel):
+                paths |= _set_paths(field_value, path + (name,))
+            elif name in value.model_fields_set:
+                paths.add(path + (name,))
+    return paths
+
+
+def _get_path(data: Any, path: Tuple[str, ...]) -> Any:
+    """
+    Get a value from a dumped model by its path
+
+    :param data: The dumped model
+    :param path: The path
+    :return: The value or _MISSING if it is not in the data (e.g. excluded)
+    """
+    for name in path:
+        if not isinstance(data, dict) or name not in data:
+            return _MISSING
+        data = data[name]
+    return data
+
+
+def _set_path(data: Dict[str, Any], path: Tuple[str, ...], value: Any) -> None:
+    """
+    Set a value in a dumped model by its path, the missing dicts are created
+
+    :param data: The dumped model, modified in place
+    :param path: The path
+    :param value: The value
+    """
+    for name in path[:-1]:
+        data = data.setdefault(name, {})
+        if not isinstance(data, dict):  # The whole value is set already
+            return
+    data[path[-1]] = value
 
 
 def _diff(new: Any, old: Any) -> Any:
@@ -451,8 +484,8 @@ class ESModel(ESBaseModel):
     _partial: bool = PrivateAttr(False)
     """ True if only some fields of the document were loaded (`_source` filtering), so it can't be saved """
 
-    _unset_snapshot: Dict[Tuple[str, ...], Any] = PrivateAttr(default_factory=dict)
-    """ The values of the fields which were not loaded, to detect their changes in update() """
+    _unset_snapshot: Dict[Tuple[str, ...], Tuple[Any, Set[Tuple[str, ...]]]] = PrivateAttr(default_factory=dict)
+    """ The dumped values and the set fields of the fields which were not loaded, to detect their changes """
 
     if TYPE_CHECKING:
         ESConfig: ClassVar[Any]
@@ -822,7 +855,27 @@ class ESModel(ESBaseModel):
         """
         Take a snapshot of the fields which were neither loaded nor set, see :meth:`to_es_update`
         """
-        self._unset_snapshot = _snapshot_unset_fields(self)
+        dump = self.model_dump(exclude=self._recursive_exclude(self))
+        snapshot = {}
+        for path in _unset_paths(self):
+            value = _get_path(dump, path)
+            if value is not _MISSING:  # Excluded fields are not saved
+                snapshot[path] = (value, _set_paths(self._get_field(path)))
+        self._unset_snapshot = snapshot
+
+    def _get_field(self, path: Tuple[str, ...]) -> Any:
+        """
+        Get a field value of the model or its nested models by its path
+
+        :param path: The path of the field
+        :return: The value, or _MISSING if the path is not in the model
+        """
+        value: Any = self
+        for name in path:
+            if not isinstance(value, BaseModel):
+                return _MISSING
+            value = getattr(value, name, _MISSING)
+        return value
 
     def to_es_update(self) -> Dict[str, Any]:
         """
@@ -831,26 +884,32 @@ class ESModel(ESBaseModel):
 
         The other fields of a loaded model are compared to their values at loading (or the last save or update), so
         the changes made in place (e.g. appending to a list, or setting a field of a nested model created by a default
-        factory) are included too, but only the changed parts.
+        factory) are included too, but only the changed or explicitly set parts.
 
         :return: The partial document for ElasticSearch
         """
-        document = self.model_dump(exclude_unset=True, exclude=self._recursive_exclude(self))
-        for path, old in self._unset_snapshot.items():
-            # Find the current value, skip it if it is set since the snapshot (it is in the document already)
-            parent: Any = self
-            for name in path[:-1]:
-                parent = getattr(parent, name, None)
-            if not isinstance(parent, BaseModel) or path[-1] in parent.model_fields_set:
-                continue
-            diff = _diff(_dump_value(getattr(parent, path[-1], None)), old)
-            if diff is _MISSING:
-                continue
-            target = document
-            for name in path[:-1]:
-                target = target.setdefault(name, {})
-            if isinstance(target, dict):
-                target[path[-1]] = diff
+        exclude = self._recursive_exclude(self)
+        document = self.model_dump(exclude_unset=True, exclude=exclude)
+        if self._unset_snapshot:
+            dump = self.model_dump(exclude=exclude)
+            for path, (old, old_set_paths) in self._unset_snapshot.items():
+                # Skip it if it is set since the snapshot, then it is in the document already
+                parent = self._get_field(path[:-1])
+                if not isinstance(parent, BaseModel) or path[-1] in parent.model_fields_set:
+                    continue
+                new = _get_path(dump, path)
+                if new is _MISSING:
+                    continue
+                diff = _diff(new, old)
+                # The fields of nested models set since the snapshot are sent, even if their values are not changed
+                if diff is _MISSING or isinstance(diff, dict):
+                    for set_path in _set_paths(getattr(parent, path[-1], None)) - old_set_paths:
+                        value = _get_path(new, set_path)
+                        if value is not _MISSING:
+                            diff = {} if diff is _MISSING else diff
+                            _set_path(diff, set_path, value)
+                if diff is not _MISSING:
+                    _set_path(document, path, diff)
         self._recursive_convert_to_es(document)
         if self.ESConfig.id_field:
             document.pop(self.ESConfig.id_field, None)
