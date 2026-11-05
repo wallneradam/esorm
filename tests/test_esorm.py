@@ -1405,6 +1405,19 @@ class TestBaseTests:
             doc = await PartialFactoryModel.get(doc_id)
             assert (doc.profile.city, doc.profile.zip) == ('Default', '1111')
 
+        # Changes made after a model is added to a bulk, but before it is sent, are sent by the next update
+        doc = PartialFactoryModel(name='a', profile=PartialProfile(city='Rome', zip='1111'))
+        doc_id = await doc.save(refresh=True)
+        partial_doc = await PartialFactoryModel.get(doc_id, _source=['name'])
+        partial_doc.profile.city = 'Queued'
+        async with esorm.ESBulk(refresh=True) as bulk:
+            await bulk.update(partial_doc)
+            partial_doc.profile.city = 'Later'
+        assert (await PartialFactoryModel.get(doc_id)).profile.city == 'Queued'
+        await partial_doc.update(refresh=True)
+        doc = await PartialFactoryModel.get(doc_id)
+        assert (doc.profile.city, doc.profile.zip) == ('Later', '1111')
+
         # Excluded fields and field serializers are respected, setting a nested field to its default is sent
         from pydantic import field_serializer
 

@@ -29,6 +29,8 @@ class ESBulk:
         self._actions = []
         self._bulk_kwargs = dict(bulk_kwargs)
         self._models_to_index = []
+        # The snapshots of the saved and updated models when they were added, they are applied after the bulk
+        self._snapshots = []
 
         # Handle refresh parameter (new way has priority over wait_for)
         if refresh:
@@ -70,7 +72,7 @@ class ESBulk:
                         model._seq_no = result['_seq_no']
                         model._primary_term = result['_primary_term']
                         model._version = result['_version']
-                        model._take_snapshot()
+                        model._apply_snapshot(self._snapshots[idx])
             if errors:
                 raise BulkError(errors)
 
@@ -139,6 +141,7 @@ class ESBulk:
 
         # Save model for later to update private fields after the bulk operation
         self._models_to_index.append(model)
+        self._snapshots.append(model._prepare_snapshot())
 
         # Add action and document to the bulk
         self._actions.append({'index': index})
@@ -164,6 +167,7 @@ class ESBulk:
 
         # Save model for later to update private fields after the bulk operation
         self._models_to_index.append(model)
+        self._snapshots.append(model._prepare_snapshot())
 
         # Add action and partial document to the bulk
         self._actions.append({'update': self._action_metadata(model)})
@@ -183,6 +187,7 @@ class ESBulk:
 
         # Save model for later to update private fields after the bulk operation
         self._models_to_index.append(model)
+        self._snapshots.append(None)
 
         # Add action
         self._actions.append({'delete': delete})

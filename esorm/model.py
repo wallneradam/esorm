@@ -175,6 +175,9 @@ def _is_source_filtered(_source: Any, kwargs: Dict[str, Any]) -> bool:
 # Marks a missing value, or no difference
 _MISSING: Any = object()
 
+# The dumped values of the fields which were not loaded by their paths, and the paths of the set fields in them
+_Snapshot = Tuple[Dict[Tuple[str, ...], Any], Set[Tuple[str, ...]]]
+
 
 def _unset_paths(model: BaseModel, path: Tuple[str, ...] = ()) -> List[Tuple[str, ...]]:
     """
@@ -212,18 +215,6 @@ def _set_paths(value: Any, path: Tuple[str, ...] = ()) -> Set[Tuple[str, ...]]:
             elif name in value.model_fields_set:
                 paths.add(path + (name,))
     return paths
-
-
-def _clear_fields_set(value: Any) -> None:
-    """
-    Clear the set fields of a model and its nested models, so the fields set later can be detected
-
-    :param value: The model (or any other value, which has no fields)
-    """
-    if isinstance(value, BaseModel):
-        value.__pydantic_fields_set__.clear()
-        for name in type(value).model_fields:
-            _clear_fields_set(getattr(value, name, None))
 
 
 def _get_path(data: Any, path: Tuple[str, ...]) -> Any:
@@ -819,6 +810,7 @@ class ESModel(ESBaseModel):
         kwargs: dict = dict(
             document=self.to_es(),
         )
+        snapshot = self._prepare_snapshot()
 
         # Handle refresh parameter (new way has priority over wait_for)
         if refresh:
@@ -847,7 +839,7 @@ class ESModel(ESBaseModel):
         self._version = es_res.get('_version', None)
         self._primary_term = es_res.get('_primary_term', None)
         self._seq_no = es_res.get('_seq_no', None)
-        self._take_snapshot()
+        self._apply_snapshot(snapshot)
         # Return the new document's ID
         return self._id
 
@@ -863,21 +855,45 @@ class ESModel(ESBaseModel):
                 f"overwrite the others with their defaults. Use update() to save the loaded fields, or reload() "
                 f"the whole document first!")
 
-    def _take_snapshot(self) -> None:
+    def _prepare_snapshot(self) -> '_Snapshot':
         """
-        Take a snapshot of the fields which were neither loaded nor set, see :meth:`to_es_update`
+        Prepare a snapshot of the fields which were neither loaded nor set, see :meth:`to_es_update`
 
-        The set fields of their nested models (e.g. set by a default factory) are cleared, so all the fields set
-        later can be detected, even if their values are not changed.
+        It must be prepared when the document is sent, and applied by :meth:`_apply_snapshot` when it is stored, so
+        the changes made in the meantime are not lost.
+
+        :return: The dumped values of the fields, and the paths of the set fields of their nested models
         """
         dump = self.model_dump(exclude=self._recursive_exclude(self))
         snapshot = {}
+        set_paths: Set[Tuple[str, ...]] = set()
         for path in _unset_paths(self):
             value = _get_path(dump, path)
             if value is not _MISSING:  # Excluded fields are not saved
                 snapshot[path] = value
-                _clear_fields_set(self._get_field(path))
-        self._unset_snapshot = snapshot
+                set_paths |= {path + set_path for set_path in _set_paths(self._get_field(path))}
+        return snapshot, set_paths
+
+    def _apply_snapshot(self, snapshot: '_Snapshot') -> None:
+        """
+        Apply a prepared snapshot
+
+        The set fields of the nested models, which were not loaded (e.g. set by a default factory), are cleared, so
+        all the fields set later can be detected, even if their values are not changed.
+
+        :param snapshot: The snapshot from :meth:`_prepare_snapshot`
+        """
+        self._unset_snapshot, set_paths = snapshot
+        for path in set_paths:
+            parent = self._get_field(path[:-1])
+            if isinstance(parent, BaseModel):
+                parent.__pydantic_fields_set__.discard(path[-1])
+
+    def _take_snapshot(self) -> None:
+        """
+        Take a snapshot of the fields which were neither loaded nor set, see :meth:`to_es_update`
+        """
+        self._apply_snapshot(self._prepare_snapshot())
 
     def _get_field(self, path: Tuple[str, ...]) -> Any:
         """
@@ -949,6 +965,7 @@ class ESModel(ESBaseModel):
         :return: The document's ID
         """
         kwargs: dict = dict(id=self.__id__, doc=self.to_es_update())
+        snapshot = self._prepare_snapshot()
 
         if refresh is not False:
             kwargs['refresh'] = refresh
@@ -970,7 +987,7 @@ class ESModel(ESBaseModel):
         self._version = es_res.get('_version', None)
         self._primary_term = es_res.get('_primary_term', None)
         self._seq_no = es_res.get('_seq_no', None)
-        self._take_snapshot()
+        self._apply_snapshot(snapshot)
         return self._id
 
     # noinspection PyShadowingBuiltins
